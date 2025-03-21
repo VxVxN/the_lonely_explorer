@@ -15,6 +15,7 @@ func main() {
 	}
 	defer game.Close()
 
+	ebiten.SetFullscreen(true)
 	ebiten.SetWindowTitle("The lonely explorer")
 
 	if err = ebiten.RunGame(game); err != nil {
