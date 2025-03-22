@@ -89,8 +89,8 @@ func NewGame() (*Game, error) {
 
 		groundImage: tilesetImage.SubImage(image.Rect(0, 0, tileSize, tileSize)).(*ebiten.Image),
 		plantImage:  tilesetImage.SubImage(image.Rect(tileSize, 0, tileSize*2, tileSize)).(*ebiten.Image),
-		robotImage:  tilesetImage.SubImage(image.Rect(tileSize*2, 0, tileSize*3, tileSize)).(*ebiten.Image),
-		spongeImage: tilesetImage.SubImage(image.Rect(tileSize*3, 0, tileSize*4, tileSize)).(*ebiten.Image),
+		spongeImage: tilesetImage.SubImage(image.Rect(tileSize*2, 0, tileSize*3, tileSize)).(*ebiten.Image),
+		robotImage:  tilesetImage.SubImage(image.Rect(tileSize*3, 0, tileSize*4, tileSize)).(*ebiten.Image),
 
 		gameMap:      gameMap,
 		eventManager: eventmanager.NewEventManager(supportedKeys),
@@ -98,7 +98,7 @@ func NewGame() (*Game, error) {
 
 		logger: logger,
 	}
-	game.stager.SetStage(stager.Scene1Stage)
+	game.stager.SetStage(stager.GameStage)
 
 	player := player2.NewPlayer(game.robotImage, 3)
 	game.player = player
@@ -143,9 +143,9 @@ func (game *Game) Draw(screen *ebiten.Image) {
 			case 2:
 				img = game.plantImage
 			case 3:
-				img = game.robotImage
-			case 4:
 				img = game.spongeImage
+			case 4:
+				img = game.robotImage
 			default:
 				//game.logger.Error("Unknown layer", "image", datum)
 				continue
@@ -153,7 +153,7 @@ func (game *Game) Draw(screen *ebiten.Image) {
 
 			shiftX := game.player.X
 			shiftY := game.player.Y
-			if datum != 2 {
+			if datum != 4 {
 				shiftX = 0
 				shiftY = 0
 			}
