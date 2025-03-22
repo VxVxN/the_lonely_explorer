@@ -12,12 +12,16 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 
 	_map "github.com/VxVxN/the_lonely_explorer/internal/map"
+	"github.com/VxVxN/the_lonely_explorer/internal/stager"
+	"github.com/VxVxN/the_lonely_explorer/internal/ui"
 	player2 "github.com/VxVxN/the_lonely_explorer/pkg/player"
 )
 
 type Game struct {
 	windowWidth, windowHeight float64
 	tileSize                  int
+
+	scene1UI *scene1UI
 
 	groundImage *ebiten.Image
 	plantImage  *ebiten.Image
@@ -27,6 +31,7 @@ type Game struct {
 	gameMap      *_map.Map
 	eventManager *eventmanager.EventManager
 	player       *player2.Player
+	stager       *stager.Stager
 
 	logger *slog.Logger
 }
@@ -67,12 +72,20 @@ func NewGame() (*Game, error) {
 		ebiten.KeyLeft,
 		ebiten.KeyRight,
 		ebiten.KeyEscape,
+		ebiten.KeyEnter,
+	}
+
+	res, err := ui.NewUIResources()
+	if err != nil {
+		return nil, err
 	}
 
 	game := &Game{
 		windowWidth:  float64(w),
 		windowHeight: float64(h),
 		tileSize:     tileSize,
+
+		scene1UI: newScene1UI(res),
 
 		groundImage: tilesetImage.SubImage(image.Rect(0, 0, tileSize, tileSize)).(*ebiten.Image),
 		plantImage:  tilesetImage.SubImage(image.Rect(tileSize, 0, tileSize*2, tileSize)).(*ebiten.Image),
@@ -81,9 +94,11 @@ func NewGame() (*Game, error) {
 
 		gameMap:      gameMap,
 		eventManager: eventmanager.NewEventManager(supportedKeys),
+		stager:       stager.New(),
 
 		logger: logger,
 	}
+	game.stager.SetStage(stager.Scene1Stage)
 
 	player := player2.NewPlayer(game.robotImage, 3)
 	game.player = player
@@ -95,11 +110,26 @@ func NewGame() (*Game, error) {
 
 func (game *Game) Update() error {
 	game.eventManager.Update()
-	game.player.Update()
+
+	switch game.stager.Stage() {
+	case stager.MainMenuStage:
+	case stager.Scene1Stage:
+		game.scene1UI.ui.Update()
+		return nil
+	case stager.GameStage:
+		game.player.Update()
+		return nil
+	}
 	return nil
 }
 
 func (game *Game) Draw(screen *ebiten.Image) {
+	switch game.stager.Stage() {
+	case stager.Scene1Stage:
+		game.scene1UI.ui.Draw(screen)
+		return
+	case stager.GameStage:
+	}
 	scale := 1.5
 	for _, layer := range game.gameMap.Data.Layers {
 		for i, datum := range layer.Data {
@@ -164,6 +194,12 @@ func (game *Game) addEvents() {
 	//		game.player.Move(ebiten.KeyDown)
 	//	}
 	//})
+	game.eventManager.AddPressedEvent(ebiten.KeyEnter, func() {
+		switch game.stager.Stage() {
+		case stager.Scene1Stage:
+			game.stager.SetStage(stager.GameStage)
+		}
+	})
 	game.eventManager.AddPressedEvent(ebiten.KeyEscape, func() {
 		os.Exit(0)
 	})
