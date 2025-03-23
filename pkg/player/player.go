@@ -1,9 +1,8 @@
 package player
 
 import (
+	"github.com/VxVxN/gamedevlib/rectangle"
 	"github.com/hajimehoshi/ebiten/v2"
-
-	"github.com/VxVxN/the_lonely_explorer/pkg/rectangle"
 )
 
 type Player struct {
@@ -72,4 +71,8 @@ func (player *Player) Dead() bool {
 
 func (player *Player) SetSpeed(speed float64) {
 	player.speed = speed
+}
+
+func (player *Player) Speed() float64 {
+	return player.speed
 }

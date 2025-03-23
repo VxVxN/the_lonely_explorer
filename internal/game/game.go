@@ -9,6 +9,7 @@ import (
 	"path"
 
 	"github.com/VxVxN/gamedevlib/eventmanager"
+	"github.com/VxVxN/gamedevlib/rectangle"
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 
@@ -24,13 +25,15 @@ type Game struct {
 
 	scene1UI *scene1UI
 
-	groundImage *ebiten.Image
-	plantImage  *ebiten.Image
-	robotImage  *ebiten.Image
-	spongeImage *ebiten.Image
+	groundImage     *ebiten.Image
+	plantImage      *ebiten.Image
+	robotImage      *ebiten.Image
+	topSpongeImage  *ebiten.Image
+	downSpongeImage *ebiten.Image
 
 	gameMap                    *_map.Map
 	mapScale                   float64
+	collisionObjs              []*rectangle.Rectangle
 	eventManager               *eventmanager.EventManager
 	player                     *player2.Player
 	startPlayerX, startPlayerY float64
@@ -40,6 +43,14 @@ type Game struct {
 }
 
 var backgroundColor = color.RGBA{0xf7, 0xf9, 0xb9, 0xff}
+
+const (
+	groundID     = 1
+	plantID      = 4
+	playerID     = 10
+	topSpongeID  = 16
+	downSpongeID = 17
+)
 
 func NewGame() (*Game, error) {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
@@ -92,10 +103,11 @@ func NewGame() (*Game, error) {
 
 		scene1UI: newScene1UI(res),
 
-		groundImage: tilesetImage.SubImage(image.Rect(0, 0, tileSize, tileSize)).(*ebiten.Image),
-		plantImage:  tilesetImage.SubImage(image.Rect(tileSize, 0, tileSize*2, tileSize)).(*ebiten.Image),
-		spongeImage: tilesetImage.SubImage(image.Rect(tileSize*2, 0, tileSize*3, tileSize)).(*ebiten.Image),
-		robotImage:  tilesetImage.SubImage(image.Rect(tileSize*3, 0, tileSize*4, tileSize)).(*ebiten.Image),
+		groundImage:     tilesetImage.SubImage(image.Rect(0, 0, tileSize, tileSize)).(*ebiten.Image),
+		plantImage:      tilesetImage.SubImage(image.Rect(tileSize*(plantID-1), 0, tileSize*plantID, tileSize)).(*ebiten.Image),
+		topSpongeImage:  tilesetImage.SubImage(image.Rect(tileSize*5, tileSize, tileSize*6, tileSize*2)).(*ebiten.Image),
+		downSpongeImage: tilesetImage.SubImage(image.Rect(tileSize*6, tileSize, tileSize*7, tileSize*2)).(*ebiten.Image),
+		robotImage:      tilesetImage.SubImage(image.Rect(tileSize*(playerID-1), 0, tileSize*playerID, tileSize)).(*ebiten.Image),
 
 		gameMap:      gameMap,
 		mapScale:     1.5,
@@ -109,8 +121,29 @@ func NewGame() (*Game, error) {
 	player := player2.NewPlayer(game.robotImage, 6)
 	game.player = player
 
+	collisionPropertyByTIle := make(map[int]struct{})
+	for _, tile := range gameMap.Data.Tilesets[0].Tiles {
+		isCollision := false
+		for _, property := range tile.Properties {
+			if property.Name == "collision" {
+				isCollision = true
+				break
+			}
+		}
+		if isCollision {
+			collisionPropertyByTIle[tile.Id+1] = struct{}{}
+		}
+	}
 	for i, tile := range gameMap.Data.Layers[1].Data {
-		if tile != 4 {
+		if _, ok := collisionPropertyByTIle[tile]; !ok {
+			continue
+		}
+		x := float64(i % game.gameMap.Data.Width * game.tileSize)
+		y := float64(i / game.gameMap.Data.Height * game.tileSize)
+		game.collisionObjs = append(game.collisionObjs, rectangle.New(x, y, float64(game.tileSize), float64(game.tileSize)))
+	}
+	for i, tile := range gameMap.Data.Layers[2].Data {
+		if tile != playerID {
 			continue
 		}
 		x := float64(i % game.gameMap.Data.Width * game.tileSize)
@@ -155,13 +188,15 @@ func (game *Game) Draw(screen *ebiten.Image) {
 			case 0:
 				// empty tile
 				continue
-			case 1:
+			case groundID:
 				img = game.groundImage
-			case 2:
+			case plantID:
 				img = game.plantImage
-			case 3:
-				img = game.spongeImage
-			case 4:
+			case topSpongeID:
+				img = game.topSpongeImage
+			case topSpongeID + 1:
+				img = game.downSpongeImage
+			case playerID:
 				img = game.robotImage
 			default:
 				//game.logger.Error("Unknown layer", "image", datum)
@@ -171,7 +206,7 @@ func (game *Game) Draw(screen *ebiten.Image) {
 			centerWindowX := (game.windowWidth/2 - float64(game.tileSize)/2) / game.mapScale
 			centerWindowY := (game.windowHeight/2 - float64(game.tileSize)/2) / game.mapScale
 			var x, y float64
-			if datum == 4 {
+			if datum == playerID {
 				x = centerWindowX
 				y = centerWindowY
 			} else {
@@ -194,23 +229,67 @@ func (game *Game) Layout(screenWidthPx, screenHeightPx int) (int, int) {
 
 func (game *Game) addEvents() {
 	game.eventManager.AddPressEvent(ebiten.KeyRight, func() {
-		if !game.player.Dead() && game.player.X+float64(game.tileSize) < float64(game.gameMap.Data.Width*game.tileSize) {
-			game.player.Move(ebiten.KeyRight)
+		switch game.stager.Stage() {
+		case stager.GameStage:
+			if !game.player.Dead() && game.player.X+float64(game.tileSize) < float64(game.gameMap.Data.Width*game.tileSize) {
+				game.player.Rectangle.X += game.player.Speed()
+				for _, obj := range game.collisionObjs {
+					if game.player.Rectangle.Collision(obj) {
+						game.player.Rectangle.X -= game.player.Speed()
+						return
+					}
+				}
+				game.player.Rectangle.X -= game.player.Speed()
+				game.player.Move(ebiten.KeyRight)
+			}
 		}
 	})
 	game.eventManager.AddPressEvent(ebiten.KeyLeft, func() {
-		if !game.player.Dead() && game.player.X > 0 {
-			game.player.Move(ebiten.KeyLeft)
+		switch game.stager.Stage() {
+		case stager.GameStage:
+			if !game.player.Dead() && game.player.X > 0 {
+				game.player.Rectangle.X -= game.player.Speed()
+				for _, obj := range game.collisionObjs {
+					if game.player.Rectangle.Collision(obj) {
+						game.player.Rectangle.X += game.player.Speed()
+						return
+					}
+				}
+				game.player.Rectangle.X += game.player.Speed()
+				game.player.Move(ebiten.KeyLeft)
+			}
 		}
 	})
 	game.eventManager.AddPressEvent(ebiten.KeyUp, func() {
-		if !game.player.Dead() && game.player.Y > 0 {
-			game.player.Move(ebiten.KeyUp)
+		switch game.stager.Stage() {
+		case stager.GameStage:
+			if !game.player.Dead() && game.player.Y > 0 {
+				game.player.Rectangle.Y -= game.player.Speed()
+				for _, obj := range game.collisionObjs {
+					if game.player.Rectangle.Collision(obj) {
+						game.player.Rectangle.Y += game.player.Speed()
+						return
+					}
+				}
+				game.player.Rectangle.Y += game.player.Speed()
+				game.player.Move(ebiten.KeyUp)
+			}
 		}
 	})
 	game.eventManager.AddPressEvent(ebiten.KeyDown, func() {
-		if !game.player.Dead() && game.player.Y+float64(game.tileSize) < float64(game.gameMap.Data.Height*game.tileSize) {
-			game.player.Move(ebiten.KeyDown)
+		switch game.stager.Stage() {
+		case stager.GameStage:
+			if !game.player.Dead() && game.player.Y+float64(game.tileSize) < float64(game.gameMap.Data.Height*game.tileSize) {
+				game.player.Rectangle.Y += game.player.Speed()
+				for _, obj := range game.collisionObjs {
+					if game.player.Rectangle.Collision(obj) {
+						game.player.Rectangle.Y -= game.player.Speed()
+						return
+					}
+				}
+				game.player.Rectangle.Y -= game.player.Speed()
+				game.player.Move(ebiten.KeyDown)
+			}
 		}
 	})
 	game.eventManager.AddPressedEvent(ebiten.KeyEnter, func() {

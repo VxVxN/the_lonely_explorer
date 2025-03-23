@@ -3,7 +3,7 @@ module github.com/VxVxN/the_lonely_explorer
 go 1.23.5
 
 require (
-	github.com/VxVxN/gamedevlib v0.0.0-20250306170620-58f85a92b107
+	github.com/VxVxN/gamedevlib v0.0.0-20250323144714-b4318ffcfe4c
 	github.com/ebitenui/ebitenui v0.6.1
 	github.com/hajimehoshi/ebiten/v2 v2.8.6
 )
