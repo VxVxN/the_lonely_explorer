@@ -3,6 +3,7 @@ package game
 import (
 	"fmt"
 	"image"
+	"image/color"
 	"log/slog"
 	"os"
 	"path"
@@ -28,13 +29,17 @@ type Game struct {
 	robotImage  *ebiten.Image
 	spongeImage *ebiten.Image
 
-	gameMap      *_map.Map
-	eventManager *eventmanager.EventManager
-	player       *player2.Player
-	stager       *stager.Stager
+	gameMap                    *_map.Map
+	mapScale                   float64
+	eventManager               *eventmanager.EventManager
+	player                     *player2.Player
+	startPlayerX, startPlayerY float64
+	stager                     *stager.Stager
 
 	logger *slog.Logger
 }
+
+var backgroundColor = color.RGBA{0xf7, 0xf9, 0xb9, 0xff}
 
 func NewGame() (*Game, error) {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
@@ -93,6 +98,7 @@ func NewGame() (*Game, error) {
 		robotImage:  tilesetImage.SubImage(image.Rect(tileSize*3, 0, tileSize*4, tileSize)).(*ebiten.Image),
 
 		gameMap:      gameMap,
+		mapScale:     1.5,
 		eventManager: eventmanager.NewEventManager(supportedKeys),
 		stager:       stager.New(),
 
@@ -100,8 +106,19 @@ func NewGame() (*Game, error) {
 	}
 	game.stager.SetStage(stager.GameStage)
 
-	player := player2.NewPlayer(game.robotImage, 3)
+	player := player2.NewPlayer(game.robotImage, 6)
 	game.player = player
+
+	for i, tile := range gameMap.Data.Layers[1].Data {
+		if tile != 4 {
+			continue
+		}
+		x := float64(i % game.gameMap.Data.Width * game.tileSize)
+		y := float64(i / game.gameMap.Data.Height * game.tileSize)
+		game.player.SetPosition(x, y)
+		game.startPlayerX, game.startPlayerY = x, y
+		break
+	}
 
 	game.addEvents()
 
@@ -124,13 +141,13 @@ func (game *Game) Update() error {
 }
 
 func (game *Game) Draw(screen *ebiten.Image) {
+	screen.Fill(backgroundColor)
 	switch game.stager.Stage() {
 	case stager.Scene1Stage:
 		game.scene1UI.ui.Draw(screen)
 		return
 	case stager.GameStage:
 	}
-	scale := 1.5
 	for _, layer := range game.gameMap.Data.Layers {
 		for i, datum := range layer.Data {
 			var img *ebiten.Image
@@ -151,22 +168,24 @@ func (game *Game) Draw(screen *ebiten.Image) {
 				continue
 			}
 
-			shiftX := game.player.X
-			shiftY := game.player.Y
-			if datum != 4 {
-				shiftX = 0
-				shiftY = 0
+			centerWindowX := (game.windowWidth/2 - float64(game.tileSize)/2) / game.mapScale
+			centerWindowY := (game.windowHeight/2 - float64(game.tileSize)/2) / game.mapScale
+			var x, y float64
+			if datum == 4 {
+				x = centerWindowX
+				y = centerWindowY
+			} else {
+				x = (float64(i%game.gameMap.Data.Width*game.tileSize) - game.player.X) + centerWindowX
+				y = (float64(i/game.gameMap.Data.Height*game.tileSize) - game.player.Y) + centerWindowY
 			}
-
-			x := float64(i%game.gameMap.Data.Width*game.tileSize) + shiftX
-			y := float64(i/game.gameMap.Data.Height*game.tileSize) + shiftY
 
 			op := &ebiten.DrawImageOptions{}
 			op.GeoM.Translate(x, y)
-			op.GeoM.Scale(scale, scale)
+			op.GeoM.Scale(game.mapScale, game.mapScale)
 			screen.DrawImage(img, op)
 		}
 	}
+	ebitenutil.DebugPrint(screen, fmt.Sprintf("Player %.0fx%.0f", game.player.X, game.player.Y))
 }
 
 func (game *Game) Layout(screenWidthPx, screenHeightPx int) (int, int) {
@@ -174,26 +193,26 @@ func (game *Game) Layout(screenWidthPx, screenHeightPx int) (int, int) {
 }
 
 func (game *Game) addEvents() {
-	//game.eventManager.AddPressEvent(ebiten.KeyRight, func() {
-	//	if !game.player.Dead() && game.player.X < game.windowWidth {
-	//		game.player.Move(ebiten.KeyRight)
-	//	}
-	//})
-	//game.eventManager.AddPressEvent(ebiten.KeyLeft, func() {
-	//	if !game.player.Dead() && game.player.X < game.windowWidth {
-	//		game.player.Move(ebiten.KeyLeft)
-	//	}
-	//})
-	//game.eventManager.AddPressEvent(ebiten.KeyUp, func() {
-	//	if !game.player.Dead() && game.player.Y > 0 {
-	//		game.player.Move(ebiten.KeyUp)
-	//	}
-	//})
-	//game.eventManager.AddPressEvent(ebiten.KeyDown, func() {
-	//	if !game.player.Dead() && game.player.Y < game.windowHeight {
-	//		game.player.Move(ebiten.KeyDown)
-	//	}
-	//})
+	game.eventManager.AddPressEvent(ebiten.KeyRight, func() {
+		if !game.player.Dead() && game.player.X+float64(game.tileSize) < float64(game.gameMap.Data.Width*game.tileSize) {
+			game.player.Move(ebiten.KeyRight)
+		}
+	})
+	game.eventManager.AddPressEvent(ebiten.KeyLeft, func() {
+		if !game.player.Dead() && game.player.X > 0 {
+			game.player.Move(ebiten.KeyLeft)
+		}
+	})
+	game.eventManager.AddPressEvent(ebiten.KeyUp, func() {
+		if !game.player.Dead() && game.player.Y > 0 {
+			game.player.Move(ebiten.KeyUp)
+		}
+	})
+	game.eventManager.AddPressEvent(ebiten.KeyDown, func() {
+		if !game.player.Dead() && game.player.Y+float64(game.tileSize) < float64(game.gameMap.Data.Height*game.tileSize) {
+			game.player.Move(ebiten.KeyDown)
+		}
+	})
 	game.eventManager.AddPressedEvent(ebiten.KeyEnter, func() {
 		switch game.stager.Stage() {
 		case stager.Scene1Stage:
