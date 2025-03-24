@@ -41,6 +41,8 @@ var backgroundColor = color.RGBA{0xf7, 0xf9, 0xb9, 0xff}
 
 const (
 	groundID     = 1
+	parachute1   = 2
+	parachute2   = 3
 	plantID      = 4
 	playerID     = 10
 	topSpongeID  = 16
@@ -100,6 +102,8 @@ func NewGame() (*Game, error) {
 
 		images: map[int]*ebiten.Image{
 			groundID:     getSubImage(groundID, tilesetImage, tileSize),
+			parachute1:   getSubImage(parachute1, tilesetImage, tileSize),
+			parachute2:   getSubImage(parachute2, tilesetImage, tileSize),
 			plantID:      getSubImage(plantID, tilesetImage, tileSize),
 			playerID:     getSubImage(playerID, tilesetImage, tileSize),
 			topSpongeID:  getSubImage(topSpongeID, tilesetImage, tileSize),
