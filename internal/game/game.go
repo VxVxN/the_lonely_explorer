@@ -25,12 +25,7 @@ type Game struct {
 
 	scene1UI *scene1UI
 
-	groundImage     *ebiten.Image
-	plantImage      *ebiten.Image
-	robotImage      *ebiten.Image
-	topSpongeImage  *ebiten.Image
-	downSpongeImage *ebiten.Image
-
+	images                     map[int]*ebiten.Image
 	gameMap                    *_map.Map
 	mapScale                   float64
 	collisionObjs              []*rectangle.Rectangle
@@ -103,11 +98,13 @@ func NewGame() (*Game, error) {
 
 		scene1UI: newScene1UI(res),
 
-		groundImage:     tilesetImage.SubImage(image.Rect(0, 0, tileSize, tileSize)).(*ebiten.Image),
-		plantImage:      tilesetImage.SubImage(image.Rect(tileSize*(plantID-1), 0, tileSize*plantID, tileSize)).(*ebiten.Image),
-		topSpongeImage:  tilesetImage.SubImage(image.Rect(tileSize*5, tileSize, tileSize*6, tileSize*2)).(*ebiten.Image),
-		downSpongeImage: tilesetImage.SubImage(image.Rect(tileSize*6, tileSize, tileSize*7, tileSize*2)).(*ebiten.Image),
-		robotImage:      tilesetImage.SubImage(image.Rect(tileSize*(playerID-1), 0, tileSize*playerID, tileSize)).(*ebiten.Image),
+		images: map[int]*ebiten.Image{
+			groundID:     getSubImage(groundID, tilesetImage, tileSize),
+			plantID:      getSubImage(plantID, tilesetImage, tileSize),
+			playerID:     getSubImage(playerID, tilesetImage, tileSize),
+			topSpongeID:  getSubImage(topSpongeID, tilesetImage, tileSize),
+			downSpongeID: getSubImage(downSpongeID, tilesetImage, tileSize),
+		},
 
 		gameMap:      gameMap,
 		mapScale:     1.5,
@@ -118,7 +115,7 @@ func NewGame() (*Game, error) {
 	}
 	game.stager.SetStage(stager.GameStage)
 
-	player := player2.NewPlayer(game.robotImage, 6)
+	player := player2.NewPlayer(game.images[playerID], 6)
 	game.player = player
 
 	collisionPropertyByTIle := make(map[int]struct{})
@@ -162,7 +159,6 @@ func (game *Game) Update() error {
 	game.eventManager.Update()
 
 	switch game.stager.Stage() {
-	case stager.MainMenuStage:
 	case stager.Scene1Stage:
 		game.scene1UI.ui.Update()
 		return nil
@@ -183,22 +179,8 @@ func (game *Game) Draw(screen *ebiten.Image) {
 	}
 	for _, layer := range game.gameMap.Data.Layers {
 		for i, datum := range layer.Data {
-			var img *ebiten.Image
-			switch datum {
-			case 0:
-				// empty tile
-				continue
-			case groundID:
-				img = game.groundImage
-			case plantID:
-				img = game.plantImage
-			case topSpongeID:
-				img = game.topSpongeImage
-			case topSpongeID + 1:
-				img = game.downSpongeImage
-			case playerID:
-				img = game.robotImage
-			default:
+			img, ok := game.images[datum]
+			if !ok {
 				//game.logger.Error("Unknown layer", "image", datum)
 				continue
 			}
@@ -304,3 +286,12 @@ func (game *Game) addEvents() {
 }
 
 func (game *Game) Close() {}
+
+func getSubImage(id int, tilesetImage *ebiten.Image, tileSize int) *ebiten.Image {
+	row := (id - 1) / 10
+	col := (id - 1) % 10
+	x := col * tileSize
+	y := row * tileSize
+
+	return tilesetImage.SubImage(image.Rect(x, y, x+tileSize, y+tileSize)).(*ebiten.Image)
+}
