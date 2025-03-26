@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 
+	"github.com/VxVxN/gamedevlib/animation"
 	"github.com/VxVxN/gamedevlib/eventmanager"
 	"github.com/VxVxN/gamedevlib/rectangle"
 	"github.com/hajimehoshi/ebiten/v2"
@@ -25,7 +26,8 @@ type Game struct {
 
 	scene1UI *scene1UI
 
-	images                     map[int]*ebiten.Image
+	imagesByObjID              map[int]*ebiten.Image
+	animationByObjID           map[int]*animation.Animation
 	gameMap                    *_map.Map
 	mapScale                   float64
 	collisionObjs              []*rectangle.Rectangle
@@ -40,13 +42,23 @@ type Game struct {
 var backgroundColor = color.RGBA{0xf7, 0xf9, 0xb9, 0xff}
 
 const (
-	groundID     = 1
-	parachute1   = 2
-	parachute2   = 3
-	plantID      = 4
-	playerID     = 10
-	topSpongeID  = 16
-	downSpongeID = 17
+	groundID         = 1
+	parachute1       = 2
+	parachute2       = 3
+	plant1ID         = 4
+	plant12D         = 5
+	plant13D         = 6
+	plant14D         = 7
+	playerBack1ID    = 8
+	playerBack2ID    = 9
+	playerForward1ID = 10
+	playerForward2ID = 11
+	playerLeft1ID    = 12
+	playerLeft2ID    = 13
+	playerRight1ID   = 14
+	playerRight2ID   = 15
+	topSpongeID      = 16
+	downSpongeID     = 17
 )
 
 func NewGame() (*Game, error) {
@@ -100,15 +112,8 @@ func NewGame() (*Game, error) {
 
 		scene1UI: newScene1UI(res),
 
-		images: map[int]*ebiten.Image{
-			groundID:     getSubImage(groundID, tilesetImage, tileSize),
-			parachute1:   getSubImage(parachute1, tilesetImage, tileSize),
-			parachute2:   getSubImage(parachute2, tilesetImage, tileSize),
-			plantID:      getSubImage(plantID, tilesetImage, tileSize),
-			playerID:     getSubImage(playerID, tilesetImage, tileSize),
-			topSpongeID:  getSubImage(topSpongeID, tilesetImage, tileSize),
-			downSpongeID: getSubImage(downSpongeID, tilesetImage, tileSize),
-		},
+		imagesByObjID:    make(map[int]*ebiten.Image),
+		animationByObjID: make(map[int]*animation.Animation),
 
 		gameMap:      gameMap,
 		mapScale:     1.5,
@@ -117,9 +122,56 @@ func NewGame() (*Game, error) {
 
 		logger: logger,
 	}
+	objIDs := []int{
+		groundID,
+		parachute1,
+		parachute2,
+		plant1ID,
+		plant12D,
+		plant13D,
+		plant14D,
+		playerBack1ID,
+		playerBack2ID,
+		playerForward1ID,
+		playerForward2ID,
+		playerLeft1ID,
+		playerLeft2ID,
+		playerRight1ID,
+		playerRight2ID,
+		topSpongeID,
+		downSpongeID,
+	}
+	for _, id := range objIDs {
+		game.imagesByObjID[id] = getSubImage(id, tilesetImage, tileSize)
+	}
+
+	plantAnimation := animation.NewAnimation([]*ebiten.Image{game.imagesByObjID[plant1ID], game.imagesByObjID[plant12D], game.imagesByObjID[plant13D], game.imagesByObjID[plant14D]})
+	plantAnimation.SetScale(game.mapScale, game.mapScale)
+	plantAnimation.SetReverse(true)
+	plantAnimation.SetRepeatable(true)
+
+	game.animationByObjID[plant1ID] = plantAnimation
+
 	game.stager.SetStage(stager.GameStage)
 
-	player := player2.NewPlayer(game.images[playerID], 6)
+	playerForwardAnimation := animation.NewAnimation([]*ebiten.Image{game.imagesByObjID[playerForward1ID], game.imagesByObjID[playerForward2ID]})
+	playerForwardAnimation.SetScale(game.mapScale, game.mapScale)
+	playerForwardAnimation.SetRepeatable(true)
+
+	playerBackAnimation := animation.NewAnimation([]*ebiten.Image{game.imagesByObjID[playerBack1ID], game.imagesByObjID[playerBack2ID]})
+	playerBackAnimation.SetScale(game.mapScale, game.mapScale)
+	playerBackAnimation.SetRepeatable(true)
+
+	playerLeftAnimation := animation.NewAnimation([]*ebiten.Image{game.imagesByObjID[playerLeft1ID], game.imagesByObjID[playerLeft2ID]})
+	playerLeftAnimation.SetScale(game.mapScale, game.mapScale)
+	playerLeftAnimation.SetRepeatable(true)
+
+	playerRightAnimation := animation.NewAnimation([]*ebiten.Image{game.imagesByObjID[playerRight1ID], game.imagesByObjID[playerRight2ID]})
+	playerRightAnimation.SetScale(game.mapScale, game.mapScale)
+	playerRightAnimation.SetRepeatable(true)
+
+	player := player2.NewPlayer(game.imagesByObjID[playerForward1ID], playerForwardAnimation, playerBackAnimation, playerLeftAnimation, playerRightAnimation, 4)
+	player.SetScale(game.mapScale)
 	game.player = player
 
 	collisionPropertyByTIle := make(map[int]struct{})
@@ -144,7 +196,7 @@ func NewGame() (*Game, error) {
 		game.collisionObjs = append(game.collisionObjs, rectangle.New(x, y, float64(game.tileSize), float64(game.tileSize)))
 	}
 	for i, tile := range gameMap.Data.Layers[2].Data {
-		if tile != playerID {
+		if tile != playerForward1ID {
 			continue
 		}
 		x := float64(i % game.gameMap.Data.Width * game.tileSize)
@@ -168,6 +220,10 @@ func (game *Game) Update() error {
 		return nil
 	case stager.GameStage:
 		game.player.Update()
+
+		for _, animation := range game.animationByObjID {
+			animation.Update(0.05)
+		}
 		return nil
 	}
 	return nil
@@ -183,7 +239,7 @@ func (game *Game) Draw(screen *ebiten.Image) {
 	}
 	for _, layer := range game.gameMap.Data.Layers {
 		for i, datum := range layer.Data {
-			img, ok := game.images[datum]
+			img, ok := game.imagesByObjID[datum]
 			if !ok {
 				//game.logger.Error("Unknown layer", "image", datum)
 				continue
@@ -192,12 +248,21 @@ func (game *Game) Draw(screen *ebiten.Image) {
 			centerWindowX := (game.windowWidth/2 - float64(game.tileSize)/2) / game.mapScale
 			centerWindowY := (game.windowHeight/2 - float64(game.tileSize)/2) / game.mapScale
 			var x, y float64
-			if datum == playerID {
+			if datum == playerForward1ID {
 				x = centerWindowX
 				y = centerWindowY
+				game.player.Draw(screen, x, y)
+				continue
 			} else {
 				x = (float64(i%game.gameMap.Data.Width*game.tileSize) - game.player.X) + centerWindowX
 				y = (float64(i/game.gameMap.Data.Height*game.tileSize) - game.player.Y) + centerWindowY
+				animation, ok := game.animationByObjID[datum]
+				if ok {
+					animation.Start()
+					animation.SetPosition(x, y)
+					animation.Draw(screen)	
+					continue
+				}
 			}
 
 			op := &ebiten.DrawImageOptions{}
@@ -286,6 +351,9 @@ func (game *Game) addEvents() {
 	})
 	game.eventManager.AddPressedEvent(ebiten.KeyEscape, func() {
 		os.Exit(0)
+	})
+	game.eventManager.SetDefaultEvent(func() {
+		game.player.Move(ebiten.Key0) // not move player
 	})
 }
 
