@@ -63,8 +63,11 @@ type DataMap struct {
 	} `json:"layers"`
 }
 type Map struct {
-	Data *DataMap
+	Data   *DataMap
+	Layers []Layer
 }
+
+type Layer [][]int
 
 func NewMap(path string) (*Map, error) {
 	file, err := os.Open(path)
@@ -79,5 +82,20 @@ func NewMap(path string) (*Map, error) {
 		return nil, err
 	}
 
-	return &Map{Data: &data}, nil
+	layers := make([]Layer, len(data.Layers))
+	for i := range layers {
+		layers[i] = make(Layer, data.Layers[i].Width)
+		for j := range layers[i] {
+			layers[i][j] = make([]int, data.Layers[i].Height)
+		}
+	}
+	for i, layer := range data.Layers {
+		for j, datum := range layer.Data {
+			x := j % data.Width
+			y := j / data.Height
+			layers[i][x][y] = datum
+		}
+	}
+
+	return &Map{Data: &data, Layers: layers}, nil
 }

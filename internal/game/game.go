@@ -59,6 +59,8 @@ const (
 	playerRight2ID   = 15
 	topSpongeID      = 16
 	downSpongeID     = 17
+
+	visibilityLimit = 11
 )
 
 func NewGame() (*Game, error) {
@@ -187,23 +189,25 @@ func NewGame() (*Game, error) {
 			collisionPropertyByTIle[tile.Id+1] = struct{}{}
 		}
 	}
-	for i, tile := range gameMap.Data.Layers[1].Data {
-		if _, ok := collisionPropertyByTIle[tile]; !ok {
-			continue
+	for x, column := range gameMap.Layers[1] {
+		for y, tile := range column {
+			if _, ok := collisionPropertyByTIle[tile]; !ok {
+				continue
+			}
+			game.collisionObjs = append(game.collisionObjs, rectangle.New(float64(x*game.tileSize), float64(y*game.tileSize), float64(game.tileSize), float64(game.tileSize)))
 		}
-		x := float64(i % game.gameMap.Data.Width * game.tileSize)
-		y := float64(i / game.gameMap.Data.Height * game.tileSize)
-		game.collisionObjs = append(game.collisionObjs, rectangle.New(x, y, float64(game.tileSize), float64(game.tileSize)))
 	}
-	for i, tile := range gameMap.Data.Layers[2].Data {
-		if tile != playerForward1ID {
-			continue
+	for x, column := range gameMap.Layers[2] {
+		for y, tile := range column {
+			if tile != playerForward1ID {
+				continue
+			}
+			xPixel := float64(x * game.tileSize)
+			yPixel := float64(y * game.tileSize)
+			game.player.SetPosition(xPixel, yPixel)
+			game.startPlayerX, game.startPlayerY = xPixel, yPixel
+			break
 		}
-		x := float64(i % game.gameMap.Data.Width * game.tileSize)
-		y := float64(i / game.gameMap.Data.Height * game.tileSize)
-		game.player.SetPosition(x, y)
-		game.startPlayerX, game.startPlayerY = x, y
-		break
 	}
 
 	game.addEvents()
@@ -237,40 +241,50 @@ func (game *Game) Draw(screen *ebiten.Image) {
 		return
 	case stager.GameStage:
 	}
-	for _, layer := range game.gameMap.Data.Layers {
-		for i, datum := range layer.Data {
-			img, ok := game.imagesByObjID[datum]
-			if !ok {
-				//game.logger.Error("Unknown layer", "image", datum)
-				continue
-			}
+	centerWindowX := (game.windowWidth/2 - float64(game.tileSize)/2) / game.mapScale
+	centerWindowY := (game.windowHeight/2 - float64(game.tileSize)/2) / game.mapScale
 
-			centerWindowX := (game.windowWidth/2 - float64(game.tileSize)/2) / game.mapScale
-			centerWindowY := (game.windowHeight/2 - float64(game.tileSize)/2) / game.mapScale
-			var x, y float64
-			if datum == playerForward1ID {
-				x = centerWindowX
-				y = centerWindowY
-				game.player.Draw(screen, x, y)
-				continue
-			} else {
-				x = (float64(i%game.gameMap.Data.Width*game.tileSize) - game.player.X) + centerWindowX
-				y = (float64(i/game.gameMap.Data.Height*game.tileSize) - game.player.Y) + centerWindowY
-				animation, ok := game.animationByObjID[datum]
-				if ok {
-					animation.Start()
-					animation.SetPosition(x, y)
-					animation.Draw(screen)	
+	for _, layer := range game.gameMap.Layers {
+	nextX:
+		for x, column := range layer {
+			for y, tile := range column {
+				if tile == 0 {
+					continue // empty tile
+				}
+				if x+visibilityLimit < int(game.player.X)/game.tileSize || x-visibilityLimit > int(game.player.X)/game.tileSize {
+					continue nextX
+				}
+				if y+visibilityLimit < int(game.player.Y)/game.tileSize || y-visibilityLimit > int(game.player.Y)/game.tileSize {
 					continue
 				}
-			}
+				img, ok := game.imagesByObjID[tile]
+				if !ok {
+					game.logger.Error("Unknown tile", "tile", tile)
+					continue
+				}
 
-			op := &ebiten.DrawImageOptions{}
-			op.GeoM.Translate(x, y)
-			op.GeoM.Scale(game.mapScale, game.mapScale)
-			screen.DrawImage(img, op)
+				var xPixel, yPixel float64
+				if tile == playerForward1ID {
+					continue
+				}
+				xPixel = (float64(x*game.tileSize) - game.player.X) + centerWindowX
+				yPixel = (float64(y*game.tileSize) - game.player.Y) + centerWindowY
+				animation, ok := game.animationByObjID[tile]
+				if ok {
+					animation.Start()
+					animation.SetPosition(xPixel, yPixel)
+					animation.Draw(screen)
+					continue
+				}
+
+				op := &ebiten.DrawImageOptions{}
+				op.GeoM.Translate(xPixel, yPixel)
+				op.GeoM.Scale(game.mapScale, game.mapScale)
+				screen.DrawImage(img, op)
+			}
 		}
 	}
+	game.player.Draw(screen, centerWindowX, centerWindowY)
 	ebitenutil.DebugPrint(screen, fmt.Sprintf("Player %.0fx%.0f", game.player.X, game.player.Y))
 }
 
