@@ -13,7 +13,8 @@ const (
 	MainMenuStage
 	MenuStage
 	SettingsStage
-	Scene1Stage
+	DialogStage
+	SceneStage
 )
 
 func (stage Stage) String() string {
@@ -26,8 +27,10 @@ func (stage Stage) String() string {
 		return "MenuStage"
 	case SettingsStage:
 		return "SettingsStage"
-	case Scene1Stage:
-		return "Scene1Stage"
+	case DialogStage:
+		return "DialogStage"
+	case SceneStage:
+		return "SceneStage"
 	}
 	return ""
 }

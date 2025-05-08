@@ -9,8 +9,10 @@ import (
 	"path"
 
 	"github.com/VxVxN/gamedevlib/animation"
-	"github.com/VxVxN/gamedevlib/eventmanager"
+	keyeventmanager "github.com/VxVxN/gamedevlib/eventmanager"
 	"github.com/VxVxN/gamedevlib/rectangle"
+	"github.com/VxVxN/the_lonely_explorer/internal/eventmanager"
+	"github.com/VxVxN/the_lonely_explorer/pkg/dialog"
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 
@@ -31,10 +33,12 @@ type Game struct {
 	gameMap                    *_map.Map
 	mapScale                   float64
 	collisionObjs              []*rectangle.Rectangle
+	keyEventManager            *keyeventmanager.EventManager
 	eventManager               *eventmanager.EventManager
 	player                     *player2.Player
 	startPlayerX, startPlayerY float64
 	stager                     *stager.Stager
+	dialog                     *dialog.Dialog
 
 	logger *slog.Logger
 }
@@ -107,6 +111,8 @@ func NewGame() (*Game, error) {
 		return nil, err
 	}
 
+	dialog := dialog.NewDialog(res)
+
 	game := &Game{
 		windowWidth:  float64(w),
 		windowHeight: float64(h),
@@ -117,10 +123,11 @@ func NewGame() (*Game, error) {
 		imagesByObjID:    make(map[int]*ebiten.Image),
 		animationByObjID: make(map[int]*animation.Animation),
 
-		gameMap:      gameMap,
-		mapScale:     1.5,
-		eventManager: eventmanager.NewEventManager(supportedKeys),
-		stager:       stager.New(),
+		gameMap:         gameMap,
+		mapScale:        1.5,
+		keyEventManager: keyeventmanager.NewEventManager(supportedKeys),
+		stager:          stager.New(),
+		dialog:          dialog,
 
 		logger: logger,
 	}
@@ -154,6 +161,7 @@ func NewGame() (*Game, error) {
 
 	game.animationByObjID[plant1ID] = plantAnimation
 
+	//game.stager.SetStage(stager.SceneStage)
 	game.stager.SetStage(stager.GameStage)
 
 	playerForwardAnimation := animation.NewAnimation([]*ebiten.Image{game.imagesByObjID[playerForward1ID], game.imagesByObjID[playerForward2ID]})
@@ -175,6 +183,20 @@ func NewGame() (*Game, error) {
 	player := player2.NewPlayer(game.imagesByObjID[playerForward1ID], playerForwardAnimation, playerBackAnimation, playerLeftAnimation, playerRightAnimation, 4)
 	player.SetScale(game.mapScale)
 	game.player = player
+
+	eventManager := eventmanager.NewEventManager(player, gameMap)
+	eventManager.SetEvents([]eventmanager.Event{
+		eventmanager.NewMeetEvent([]int{plant1ID}, func() {
+			game.stager.SetStage(stager.DialogStage)
+			game.dialog.TurnOn("FLORA-2284-Y (\"Солнечный шёпот\")  \n\nЖелтый, как сгусток инопланетного света, этот странный организм колышется в разреженном ветре Kepler-442b, будто пойманный в ловушку собственного сияния. Его лепестки, тонкие, как лезвия, мерцают неестественным золотом, словно впитали свет далекой звезды и теперь медленно излучают его обратно в сумрачный мир. При малейшем прикосновении растение звенит, будто стеклянная арфа, а его поверхность, покрытая серебристыми ворсинками, дрожит, словно живая ртуть. Оно не похоже на земные цветы — в нем нет ни мягкости, ни нежности, только холодная, почти механическая красота, словно сама планета вырастила его из металла и солнечного ветра. И когда ночь опускается на равнины, ксантоид начинает светиться изнутри, как забытый сигнальный маяк, будто пытается что-то сказать… или предупредить.")
+		}),
+		eventmanager.NewMeetEvent([]int{topSpongeID, downSpongeID}, func() {
+			game.stager.SetStage(stager.DialogStage)
+			game.dialog.TurnOn("FLORA-4712-P (\"Розовый Пульсар\")\n\nМягкий, почти неестественно пухлый, этот организм напоминает гигантскую каплю жевательной резинки, случайно упавшую на каменистую поверхность Kepler-442b. Его розовая, полупрозрачная поверхность переливается перламутровыми бликами, словно покрыта тонкой плёнкой слизи, но при этом выглядит сухой на ощупь. Цветок пульсирует едва заметно, как будто дышит, расширяясь и сжимаясь в медленном, гипнотическом ритме.\n\nПри приближении его бархатистая текстура внезапно меняется — поверхность вздымается крошечными пузырьками, словно кипящая жидкость, а затем снова опадает в гладкую массу. Если коснуться, он нежно дрожит, издавая слабый, похожий на бульканье звук, а затем медленно начинает менять оттенок — от нежно-розового до глубокого фуксии, будто реагируя на контакт.")
+		}),
+	})
+
+	game.eventManager = eventManager
 
 	collisionPropertyByTIle := make(map[int]struct{})
 	for _, tile := range gameMap.Data.Tilesets[0].Tiles {
@@ -216,14 +238,17 @@ func NewGame() (*Game, error) {
 }
 
 func (game *Game) Update() error {
-	game.eventManager.Update()
+	game.keyEventManager.Update()
 
 	switch game.stager.Stage() {
-	case stager.Scene1Stage:
+	case stager.SceneStage:
 		game.scene1UI.ui.Update()
+		return nil
+	case stager.DialogStage:
 		return nil
 	case stager.GameStage:
 		game.player.Update()
+		game.eventManager.Update()
 
 		for _, animation := range game.animationByObjID {
 			animation.Update(0.05)
@@ -234,13 +259,13 @@ func (game *Game) Update() error {
 }
 
 func (game *Game) Draw(screen *ebiten.Image) {
-	screen.Fill(backgroundColor)
 	switch game.stager.Stage() {
-	case stager.Scene1Stage:
+	case stager.SceneStage:
 		game.scene1UI.ui.Draw(screen)
 		return
 	case stager.GameStage:
 	}
+	screen.Fill(backgroundColor)
 	centerWindowX := (game.windowWidth/2 - float64(game.tileSize)/2) / game.mapScale
 	centerWindowY := (game.windowHeight/2 - float64(game.tileSize)/2) / game.mapScale
 
@@ -286,6 +311,7 @@ func (game *Game) Draw(screen *ebiten.Image) {
 	}
 	game.player.Draw(screen, centerWindowX, centerWindowY)
 	ebitenutil.DebugPrint(screen, fmt.Sprintf("Player %.0fx%.0f", game.player.X, game.player.Y))
+	game.dialog.Draw(screen)
 }
 
 func (game *Game) Layout(screenWidthPx, screenHeightPx int) (int, int) {
@@ -293,7 +319,7 @@ func (game *Game) Layout(screenWidthPx, screenHeightPx int) (int, int) {
 }
 
 func (game *Game) addEvents() {
-	game.eventManager.AddPressEvent(ebiten.KeyRight, func() {
+	game.keyEventManager.AddPressEvent(ebiten.KeyRight, func() {
 		switch game.stager.Stage() {
 		case stager.GameStage:
 			if !game.player.Dead() && game.player.X+float64(game.tileSize) < float64(game.gameMap.Data.Width*game.tileSize) {
@@ -309,7 +335,7 @@ func (game *Game) addEvents() {
 			}
 		}
 	})
-	game.eventManager.AddPressEvent(ebiten.KeyLeft, func() {
+	game.keyEventManager.AddPressEvent(ebiten.KeyLeft, func() {
 		switch game.stager.Stage() {
 		case stager.GameStage:
 			if !game.player.Dead() && game.player.X > 0 {
@@ -325,7 +351,7 @@ func (game *Game) addEvents() {
 			}
 		}
 	})
-	game.eventManager.AddPressEvent(ebiten.KeyUp, func() {
+	game.keyEventManager.AddPressEvent(ebiten.KeyUp, func() {
 		switch game.stager.Stage() {
 		case stager.GameStage:
 			if !game.player.Dead() && game.player.Y > 0 {
@@ -341,7 +367,7 @@ func (game *Game) addEvents() {
 			}
 		}
 	})
-	game.eventManager.AddPressEvent(ebiten.KeyDown, func() {
+	game.keyEventManager.AddPressEvent(ebiten.KeyDown, func() {
 		switch game.stager.Stage() {
 		case stager.GameStage:
 			if !game.player.Dead() && game.player.Y+float64(game.tileSize) < float64(game.gameMap.Data.Height*game.tileSize) {
@@ -357,16 +383,19 @@ func (game *Game) addEvents() {
 			}
 		}
 	})
-	game.eventManager.AddPressedEvent(ebiten.KeyEnter, func() {
+	game.keyEventManager.AddPressedEvent(ebiten.KeyEnter, func() {
 		switch game.stager.Stage() {
-		case stager.Scene1Stage:
+		case stager.SceneStage:
 			game.stager.SetStage(stager.GameStage)
+		case stager.DialogStage:
+			game.stager.SetStage(stager.GameStage)
+			game.dialog.TurnOff()
 		}
 	})
-	game.eventManager.AddPressedEvent(ebiten.KeyEscape, func() {
+	game.keyEventManager.AddPressedEvent(ebiten.KeyEscape, func() {
 		os.Exit(0)
 	})
-	game.eventManager.SetDefaultEvent(func() {
+	game.keyEventManager.SetDefaultEvent(func() {
 		game.player.Move(ebiten.Key0) // not move player
 	})
 }
