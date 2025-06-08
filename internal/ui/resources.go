@@ -48,7 +48,7 @@ type UiResources struct {
 	Label       *labelResources
 	Checkbox    *checkboxResources
 	comboButton *comboButtonResources
-	list        *listResources
+	List        *listResources
 	Slider      *sliderResources
 	progressBar *progressBarResources
 	panel       *panelResources
@@ -95,7 +95,7 @@ type comboButtonResources struct {
 }
 
 type listResources struct {
-	image        *widget.ScrollContainerImage
+	Image        *widget.ScrollContainerImage
 	track        *widget.SliderTrackImage
 	trackPadding widget.Insets
 	handle       *widget.ButtonImage
@@ -245,7 +245,7 @@ func NewUIResources() (*UiResources, error) {
 		Label:       newLabelResources(fonts),
 		Checkbox:    checkbox,
 		comboButton: comboButton,
-		list:        list,
+		List:        list,
 		Slider:      slider,
 		panel:       panel,
 		tabBook:     tabBook,
@@ -454,7 +454,7 @@ func newListResources(fonts *Fonts) (*listResources, error) {
 	}
 
 	return &listResources{
-		image: &widget.ScrollContainerImage{
+		Image: &widget.ScrollContainerImage{
 			Idle:     image.NewNineSlice(idle, [3]int{25, 12, 22}, [3]int{25, 12, 25}),
 			Disabled: image.NewNineSlice(disabled, [3]int{25, 12, 22}, [3]int{25, 12, 25}),
 			Mask:     image.NewNineSlice(mask, [3]int{26, 10, 23}, [3]int{26, 10, 26}),

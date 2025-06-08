@@ -15,6 +15,7 @@ const (
 	SettingsStage
 	DialogStage
 	SceneStage
+	JournalStage
 )
 
 func (stage Stage) String() string {

@@ -131,47 +131,47 @@ func NewListComboButton(entries []interface{}, buttonLabel widget.SelectComboBut
 		widget.ListComboButtonOpts.ListOpts(
 			widget.ListOpts.Entries(entries),
 			widget.ListOpts.ScrollContainerOpts(
-				widget.ScrollContainerOpts.Image(res.list.image),
+				widget.ScrollContainerOpts.Image(res.List.Image),
 			),
 			widget.ListOpts.SliderOpts(
-				widget.SliderOpts.Images(res.list.track, res.list.handle),
-				widget.SliderOpts.MinHandleSize(res.list.handleSize),
-				widget.SliderOpts.TrackPadding(res.list.trackPadding)),
-			widget.ListOpts.EntryFontFace(res.list.face),
-			widget.ListOpts.EntryColor(res.list.entry),
-			widget.ListOpts.EntryTextPadding(res.list.entryPadding),
+				widget.SliderOpts.Images(res.List.track, res.List.handle),
+				widget.SliderOpts.MinHandleSize(res.List.handleSize),
+				widget.SliderOpts.TrackPadding(res.List.trackPadding)),
+			widget.ListOpts.EntryFontFace(res.List.face),
+			widget.ListOpts.EntryColor(res.List.entry),
+			widget.ListOpts.EntryTextPadding(res.List.entryPadding),
 		),
 		widget.ListComboButtonOpts.EntryLabelFunc(buttonLabel, entryLabel),
 		widget.ListComboButtonOpts.EntrySelectedHandler(entrySelectedHandler))
 }
 
-func newList(entries []interface{}, res *UiResources, widgetOpts ...widget.WidgetOpt) *widget.List {
+func NewList(entries []interface{}, res *UiResources, widgetOpts ...widget.WidgetOpt) *widget.List {
 	return widget.NewList(
 		widget.ListOpts.ContainerOpts(widget.ContainerOpts.WidgetOpts(widgetOpts...)),
-		widget.ListOpts.ScrollContainerOpts(widget.ScrollContainerOpts.Image(res.list.image)),
+		widget.ListOpts.ScrollContainerOpts(widget.ScrollContainerOpts.Image(res.List.Image)),
 		widget.ListOpts.SliderOpts(
-			widget.SliderOpts.Images(res.list.track, res.list.handle),
-			widget.SliderOpts.MinHandleSize(res.list.handleSize),
-			widget.SliderOpts.TrackPadding(res.list.trackPadding),
+			widget.SliderOpts.Images(res.List.track, res.List.handle),
+			widget.SliderOpts.MinHandleSize(res.List.handleSize),
+			widget.SliderOpts.TrackPadding(res.List.trackPadding),
 		),
 		widget.ListOpts.HideHorizontalSlider(),
 		widget.ListOpts.Entries(entries),
 		widget.ListOpts.EntryLabelFunc(func(e interface{}) string {
 			return e.(string)
 		}),
-		widget.ListOpts.EntryFontFace(res.list.face),
-		widget.ListOpts.EntryColor(res.list.entry),
-		widget.ListOpts.EntryTextPadding(res.list.entryPadding),
+		widget.ListOpts.EntryFontFace(res.List.face),
+		widget.ListOpts.EntryColor(res.List.entry),
+		widget.ListOpts.EntryTextPadding(res.List.entryPadding),
 	)
 }
 func newTextArea(text string, res *UiResources, widgetOpts ...widget.WidgetOpt) *widget.TextArea {
 	return widget.NewTextArea(
 		widget.TextAreaOpts.ContainerOpts(widget.ContainerOpts.WidgetOpts(widgetOpts...)),
-		widget.TextAreaOpts.ScrollContainerOpts(widget.ScrollContainerOpts.Image(res.list.image)),
+		widget.TextAreaOpts.ScrollContainerOpts(widget.ScrollContainerOpts.Image(res.List.Image)),
 		widget.TextAreaOpts.SliderOpts(
-			widget.SliderOpts.Images(res.list.track, res.list.handle),
-			widget.SliderOpts.MinHandleSize(res.list.handleSize),
-			widget.SliderOpts.TrackPadding(res.list.trackPadding),
+			widget.SliderOpts.Images(res.List.track, res.List.handle),
+			widget.SliderOpts.MinHandleSize(res.List.handleSize),
+			widget.SliderOpts.TrackPadding(res.List.trackPadding),
 		),
 		widget.TextAreaOpts.ShowVerticalScrollbar(),
 		widget.TextAreaOpts.VerticalScrollMode(widget.PositionAtEnd),

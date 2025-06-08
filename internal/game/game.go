@@ -8,13 +8,18 @@ import (
 	"os"
 	"path"
 
+	"golang.org/x/image/font"
+	"golang.org/x/image/font/opentype"
+
 	"github.com/VxVxN/gamedevlib/animation"
 	keyeventmanager "github.com/VxVxN/gamedevlib/eventmanager"
 	"github.com/VxVxN/gamedevlib/rectangle"
 	"github.com/VxVxN/the_lonely_explorer/internal/eventmanager"
+	"github.com/VxVxN/the_lonely_explorer/internal/journal"
 	"github.com/VxVxN/the_lonely_explorer/pkg/dialog"
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
+	"github.com/hajimehoshi/ebiten/v2/examples/resources/fonts"
 
 	_map "github.com/VxVxN/the_lonely_explorer/internal/map"
 	"github.com/VxVxN/the_lonely_explorer/internal/stager"
@@ -36,17 +41,13 @@ type Game struct {
 	keyEventManager            *keyeventmanager.EventManager
 	eventManager               *eventmanager.EventManager
 	player                     *player2.Player
+	journal                    *journal.Journal
 	startPlayerX, startPlayerY float64
 	stager                     *stager.Stager
 	dialog                     *dialog.Dialog
-	Journal                    []RecordJournal
+	journalRecords             []journal.RecordJournal
 
 	logger *slog.Logger
-}
-
-type RecordJournal struct {
-	Image       *ebiten.Image
-	Description string
 }
 
 var backgroundColor = color.RGBA{0xf7, 0xf9, 0xb9, 0xff}
@@ -110,6 +111,7 @@ func NewGame() (*Game, error) {
 		ebiten.KeyRight,
 		ebiten.KeyEscape,
 		ebiten.KeyEnter,
+		ebiten.KeyJ,
 	}
 
 	res, err := ui.NewUIResources()
@@ -160,6 +162,15 @@ func NewGame() (*Game, error) {
 		game.imagesByObjID[id] = getSubImage(id, tilesetImage, tileSize)
 	}
 
+	font, err := loadDefaultFont()
+	if err != nil {
+		return nil, fmt.Errorf("can't load font: %v", err)
+	}
+
+	game.journal = journal.NewJournal(font)
+	game.journal.SetPosition(100, 100)
+	game.journal.SetBackgroundColor(color.RGBA{30, 30, 30, 200})
+
 	plantAnimation := animation.NewAnimation([]*ebiten.Image{game.imagesByObjID[plant1ID], game.imagesByObjID[plant12D], game.imagesByObjID[plant13D], game.imagesByObjID[plant14D]})
 	plantAnimation.SetScale(game.mapScale, game.mapScale)
 	plantAnimation.SetReverse(true)
@@ -194,20 +205,28 @@ func NewGame() (*Game, error) {
 	eventManager.SetEvents([]eventmanager.Event{
 		eventmanager.NewMeetEvent([]int{plant1ID}, func() {
 			text := "FLORA-2284-Y (\"Солнечный шёпот\")  \n\nЖелтый, как сгусток инопланетного света, этот странный организм колышется в разреженном ветре Kepler-442b, будто пойманный в ловушку собственного сияния. Его лепестки, тонкие, как лезвия, мерцают неестественным золотом, словно впитали свет далекой звезды и теперь медленно излучают его обратно в сумрачный мир. При малейшем прикосновении растение звенит, будто стеклянная арфа, а его поверхность, покрытая серебристыми ворсинками, дрожит, словно живая ртуть. Оно не похоже на земные цветы — в нем нет ни мягкости, ни нежности, только холодная, почти механическая красота, словно сама планета вырастила его из металла и солнечного ветра. И когда ночь опускается на равнины, ксантоид начинает светиться изнутри, как забытый сигнальный маяк, будто пытается что-то сказать… или предупредить."
-			game.stager.SetStage(stager.DialogStage)
-			game.dialog.TurnOn(text)
-			game.Journal = append(game.Journal, RecordJournal{
+			turnOnDialog := func() {
+				game.stager.SetStage(stager.DialogStage)
+				game.dialog.TurnOn(text)
+			}
+			turnOnDialog()
+			game.journalRecords = append(game.journalRecords, journal.RecordJournal{
 				Image:       game.imagesByObjID[plant1ID],
 				Description: text,
+				Action:      turnOnDialog,
 			})
 		}),
 		eventmanager.NewMeetEvent([]int{topSpongeID, downSpongeID}, func() {
 			text := "FLORA-4712-P (\"Розовый Пульсар\")\n\nМягкий, почти неестественно пухлый, этот организм напоминает гигантскую каплю жевательной резинки, случайно упавшую на каменистую поверхность Kepler-442b. Его розовая, полупрозрачная поверхность переливается перламутровыми бликами, словно покрыта тонкой плёнкой слизи, но при этом выглядит сухой на ощупь. Цветок пульсирует едва заметно, как будто дышит, расширяясь и сжимаясь в медленном, гипнотическом ритме.\n\nПри приближении его бархатистая текстура внезапно меняется — поверхность вздымается крошечными пузырьками, словно кипящая жидкость, а затем снова опадает в гладкую массу. Если коснуться, он нежно дрожит, издавая слабый, похожий на бульканье звук, а затем медленно начинает менять оттенок — от нежно-розового до глубокого фуксии, будто реагируя на контакт."
-			game.stager.SetStage(stager.DialogStage)
-			game.dialog.TurnOn(text)
-			game.Journal = append(game.Journal, RecordJournal{
+			turnOnDialog := func() {
+				game.stager.SetStage(stager.DialogStage)
+				game.dialog.TurnOn(text)
+			}
+			turnOnDialog()
+			game.journalRecords = append(game.journalRecords, journal.RecordJournal{
 				Image:       game.imagesByObjID[topSpongeID],
 				Description: text,
+				Action:      turnOnDialog,
 			})
 		}),
 	})
@@ -257,6 +276,8 @@ func (game *Game) Update() error {
 	game.keyEventManager.Update()
 
 	switch game.stager.Stage() {
+	case stager.JournalStage:
+		game.journal.Update()
 	case stager.SceneStage:
 		game.scene1UI.ui.Update()
 		return nil
@@ -328,6 +349,7 @@ func (game *Game) Draw(screen *ebiten.Image) {
 	game.player.Draw(screen, centerWindowX, centerWindowY)
 	ebitenutil.DebugPrint(screen, fmt.Sprintf("Player %.0fx%.0f", game.player.X, game.player.Y))
 	game.dialog.Draw(screen)
+	game.journal.Draw(screen)
 }
 
 func (game *Game) Layout(screenWidthPx, screenHeightPx int) (int, int) {
@@ -404,8 +426,19 @@ func (game *Game) addEvents() {
 		case stager.SceneStage:
 			game.stager.SetStage(stager.GameStage)
 		case stager.DialogStage:
-			game.stager.SetStage(stager.GameStage)
+			game.stager.RecoveryLastStage()
 			game.dialog.TurnOff()
+		}
+	})
+	game.keyEventManager.AddPressedEvent(ebiten.KeyJ, func() {
+		switch game.stager.Stage() {
+		case stager.GameStage:
+			game.journal.TurnOnOff()
+			game.journal.SetKnowRecords(game.journalRecords)
+			game.stager.SetStage(stager.JournalStage)
+		case stager.JournalStage:
+			game.journal.TurnOnOff()
+			game.stager.SetStage(stager.GameStage)
 		}
 	})
 	game.keyEventManager.AddPressedEvent(ebiten.KeyEscape, func() {
@@ -425,4 +458,23 @@ func getSubImage(id int, tilesetImage *ebiten.Image, tileSize int) *ebiten.Image
 	y := row * tileSize
 
 	return tilesetImage.SubImage(image.Rect(x, y, x+tileSize, y+tileSize)).(*ebiten.Image)
+}
+
+func loadDefaultFont() (font.Face, error) {
+	tt, err := opentype.Parse(fonts.MPlus1pRegular_ttf)
+	if err != nil {
+		return nil, err
+	}
+
+	const dpi = 72
+	fontFace, err := opentype.NewFace(tt, &opentype.FaceOptions{
+		Size:    24,
+		DPI:     dpi,
+		Hinting: font.HintingFull,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return fontFace, nil
 }
