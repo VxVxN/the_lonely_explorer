@@ -8,9 +8,6 @@ import (
 	"os"
 	"path"
 
-	"golang.org/x/image/font"
-	"golang.org/x/image/font/opentype"
-
 	"github.com/VxVxN/gamedevlib/animation"
 	keyeventmanager "github.com/VxVxN/gamedevlib/eventmanager"
 	"github.com/VxVxN/gamedevlib/rectangle"
@@ -170,12 +167,7 @@ func NewGame() (*Game, error) {
 		game.imagesByObjID[id] = getSubImage(id, tilesetImage, tileSize)
 	}
 
-	font, err := loadDefaultFont()
-	if err != nil {
-		return nil, fmt.Errorf("can't load font: %v", err)
-	}
-
-	game.journal = journal.NewJournal(font)
+	game.journal = journal.NewJournal(theme, float64(w), float64(h))
 	game.journal.SetPosition(100, 100)
 	game.journal.SetBackgroundColor(color.RGBA{30, 30, 30, 200})
 
@@ -466,23 +458,4 @@ func getSubImage(id int, tilesetImage *ebiten.Image, tileSize int) *ebiten.Image
 	y := row * tileSize
 
 	return tilesetImage.SubImage(image.Rect(x, y, x+tileSize, y+tileSize)).(*ebiten.Image)
-}
-
-func loadDefaultFont() (font.Face, error) {
-	tt, err := opentype.Parse(fonts.MPlus1pRegular_ttf)
-	if err != nil {
-		return nil, err
-	}
-
-	const dpi = 72
-	fontFace, err := opentype.NewFace(tt, &opentype.FaceOptions{
-		Size:    24,
-		DPI:     dpi,
-		Hinting: font.HintingFull,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return fontFace, nil
 }
