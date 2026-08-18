@@ -23,8 +23,8 @@ import (
 
 	_map "github.com/VxVxN/the_lonely_explorer/internal/map"
 	"github.com/VxVxN/the_lonely_explorer/internal/stager"
-	"github.com/VxVxN/the_lonely_explorer/internal/ui"
 	player2 "github.com/VxVxN/the_lonely_explorer/pkg/player"
+	"github.com/VxVxN/the_lonely_explorer/pkg/simpleui"
 )
 
 type Game struct {
@@ -114,19 +114,27 @@ func NewGame() (*Game, error) {
 		ebiten.KeyJ,
 	}
 
-	res, err := ui.NewUIResources()
+	bodyFace, err := simpleui.LoadFont(fonts.MPlus1pRegular_ttf, 28)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("can't load UI font: %v", err)
+	}
+	dialogFace, err := simpleui.LoadFont(fonts.MPlus1pRegular_ttf, 18)
+	if err != nil {
+		return nil, fmt.Errorf("can't load UI font: %v", err)
 	}
 
-	dialog := dialog.NewDialog(res)
+	theme := simpleui.DefaultTheme(bodyFace)
+	dialogTheme := *theme
+	dialogTheme.Face = dialogFace
+
+	dialog := dialog.NewDialog(&dialogTheme)
 
 	game := &Game{
 		windowWidth:  float64(w),
 		windowHeight: float64(h),
 		tileSize:     tileSize,
 
-		scene1UI: newScene1UI(res),
+		scene1UI: newScene1UI(theme, float64(w), float64(h)),
 
 		imagesByObjID:    make(map[int]*ebiten.Image),
 		animationByObjID: make(map[int]*animation.Animation),
