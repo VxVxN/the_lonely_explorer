@@ -18,6 +18,10 @@ type Clickable struct {
 	Theme    *Theme
 	OnClick  func()
 	Disabled bool
+	// Selected highlights the widget the same way hover does, for
+	// keyboard-driven selection (e.g. arrow-key navigation) rather than
+	// mouse hover.
+	Selected bool
 
 	hovered bool
 	pressed bool
@@ -60,6 +64,14 @@ func (c *Clickable) Update() {
 	c.Child.Update()
 }
 
+// Activate runs OnClick as if the widget had been clicked, e.g. in response
+// to keyboard activation of a selected item.
+func (c *Clickable) Activate() {
+	if !c.Disabled && c.OnClick != nil {
+		c.OnClick()
+	}
+}
+
 func (c *Clickable) Draw(screen *ebiten.Image) {
 	x, y, w, h := c.Bounds()
 
@@ -67,7 +79,7 @@ func (c *Clickable) Draw(screen *ebiten.Image) {
 	switch {
 	case c.pressed:
 		bg = c.Theme.ButtonPressed
-	case c.hovered:
+	case c.hovered, c.Selected:
 		bg = c.Theme.ButtonHover
 	}
 	if bg != nil {

@@ -28,6 +28,9 @@ type Journal struct {
 	list  *simpleui.Container
 	empty *simpleui.Text
 
+	rows     []*simpleui.Clickable
+	selected int
+
 	running bool
 }
 
@@ -69,6 +72,8 @@ func NewJournal(theme *simpleui.Theme, screenWidth, screenHeight float64) *Journ
 // SetKnowRecords replaces the list contents.
 func (j *Journal) SetKnowRecords(records []RecordJournal) {
 	j.list.Clear()
+	j.rows = nil
+	j.selected = -1
 
 	if len(records) == 0 {
 		j.list.Add(j.empty)
@@ -85,7 +90,37 @@ func (j *Journal) SetKnowRecords(records []RecordJournal) {
 		row.Add(simpleui.NewIcon(record.Image, imageWidth, itemHeight))
 		row.Add(simpleui.NewText(description, j.theme.Face, j.theme.TextColor))
 
-		j.list.Add(simpleui.NewClickable(row, j.theme, record.Action))
+		clickable := simpleui.NewClickable(row, j.theme, record.Action)
+		j.rows = append(j.rows, clickable)
+		j.list.Add(clickable)
+	}
+
+	j.selected = 0
+	j.highlightSelected()
+}
+
+// MoveSelection shifts the highlighted record by delta (e.g. -1 for the
+// arrow-up key, +1 for arrow-down), wrapping around the ends of the list.
+func (j *Journal) MoveSelection(delta int) {
+	if len(j.rows) == 0 {
+		return
+	}
+	j.selected = (j.selected + delta + len(j.rows)) % len(j.rows)
+	j.highlightSelected()
+}
+
+// ActivateSelection runs the currently highlighted record's Action, e.g. in
+// response to the Enter key.
+func (j *Journal) ActivateSelection() {
+	if j.selected < 0 || j.selected >= len(j.rows) {
+		return
+	}
+	j.rows[j.selected].Activate()
+}
+
+func (j *Journal) highlightSelected() {
+	for i, row := range j.rows {
+		row.Selected = i == j.selected
 	}
 }
 

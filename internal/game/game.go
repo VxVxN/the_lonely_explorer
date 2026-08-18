@@ -428,6 +428,20 @@ func (game *Game) addEvents() {
 		case stager.DialogStage:
 			game.stager.RecoveryLastStage()
 			game.dialog.TurnOff()
+		case stager.JournalStage:
+			game.journal.ActivateSelection()
+		}
+	})
+	game.keyEventManager.AddPressedEvent(ebiten.KeyUp, func() {
+		switch game.stager.Stage() {
+		case stager.JournalStage:
+			game.journal.MoveSelection(-1)
+		}
+	})
+	game.keyEventManager.AddPressedEvent(ebiten.KeyDown, func() {
+		switch game.stager.Stage() {
+		case stager.JournalStage:
+			game.journal.MoveSelection(1)
 		}
 	})
 	game.keyEventManager.AddPressedEvent(ebiten.KeyJ, func() {
