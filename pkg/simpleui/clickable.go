@@ -75,11 +75,16 @@ func (c *Clickable) Activate() {
 func (c *Clickable) Draw(screen *ebiten.Image) {
 	x, y, w, h := c.Bounds()
 
+	// hovered is intentionally not used for highlighting: it reflects
+	// wherever the OS cursor happens to sit, which competes with Selected
+	// in keyboard-driven lists like the journal (a stray hover would paint
+	// a second, unmoving "selected-looking" row). It still gates clicks in
+	// Update.
 	var bg color.Color
 	switch {
 	case c.pressed:
 		bg = c.Theme.ButtonPressed
-	case c.hovered, c.Selected:
+	case c.Selected:
 		bg = c.Theme.ButtonHover
 	}
 	if bg != nil {

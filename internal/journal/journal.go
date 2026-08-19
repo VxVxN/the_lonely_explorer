@@ -14,7 +14,11 @@ import (
 type RecordJournal struct {
 	Image       *ebiten.Image
 	Description string
-	Action      func()
+	// Category groups records under a header in the list, e.g. "Флора" or
+	// "Исследования станции". Records are grouped in the order their
+	// category is first seen; an empty Category renders without a header.
+	Category string
+	Action   func()
 }
 
 // Journal is a toggleable panel listing collected records, anchored at a
@@ -80,19 +84,33 @@ func (j *Journal) SetKnowRecords(records []RecordJournal) {
 		return
 	}
 
+	var categories []string
+	grouped := make(map[string][]RecordJournal)
 	for _, record := range records {
-		record := record
-		description := strings.Split(record.Description, "\n")[0]
+		if _, ok := grouped[record.Category]; !ok {
+			categories = append(categories, record.Category)
+		}
+		grouped[record.Category] = append(grouped[record.Category], record)
+	}
 
-		row := simpleui.NewContainer(simpleui.Horizontal)
-		row.Spacing = 10
-		row.CrossAlign = simpleui.AlignCenter
-		row.Add(simpleui.NewIcon(record.Image, imageWidth, itemHeight))
-		row.Add(simpleui.NewText(description, j.theme.Face, j.theme.TextColor))
+	for _, category := range categories {
+		if category != "" {
+			j.list.Add(simpleui.NewText(category, j.theme.Face, j.theme.Accent))
+		}
+		for _, record := range grouped[category] {
+			record := record
+			description := strings.Split(record.Description, "\n")[0]
 
-		clickable := simpleui.NewClickable(row, j.theme, record.Action)
-		j.rows = append(j.rows, clickable)
-		j.list.Add(clickable)
+			row := simpleui.NewContainer(simpleui.Horizontal)
+			row.Spacing = 10
+			row.CrossAlign = simpleui.AlignCenter
+			row.Add(simpleui.NewIcon(record.Image, imageWidth, itemHeight))
+			row.Add(simpleui.NewText(description, j.theme.Face, j.theme.TextColor))
+
+			clickable := simpleui.NewClickable(row, j.theme, record.Action)
+			j.rows = append(j.rows, clickable)
+			j.list.Add(clickable)
+		}
 	}
 
 	j.selected = 0

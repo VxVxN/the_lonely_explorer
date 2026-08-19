@@ -7,16 +7,18 @@ import (
 	"log/slog"
 	"os"
 	"path"
+	"time"
 
 	"github.com/VxVxN/gamedevlib/animation"
 	keyeventmanager "github.com/VxVxN/gamedevlib/eventmanager"
 	"github.com/VxVxN/gamedevlib/rectangle"
-	"github.com/VxVxN/the_lonely_explorer/internal/eventmanager"
-	"github.com/VxVxN/the_lonely_explorer/internal/journal"
-	"github.com/VxVxN/the_lonely_explorer/pkg/dialog"
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/examples/resources/fonts"
+
+	"github.com/VxVxN/the_lonely_explorer/internal/eventmanager"
+	"github.com/VxVxN/the_lonely_explorer/internal/journal"
+	"github.com/VxVxN/the_lonely_explorer/pkg/dialog"
 
 	_map "github.com/VxVxN/the_lonely_explorer/internal/map"
 	"github.com/VxVxN/the_lonely_explorer/internal/stager"
@@ -44,6 +46,14 @@ type Game struct {
 	dialog                     *dialog.Dialog
 	journalRecords             []journal.RecordJournal
 
+	stationPlaced   bool
+	stationReady    bool
+	stationTileX    int
+	stationTileY    int
+	stationSoilID   int
+	stationPlacedAt time.Time
+	researchedSoils map[int]struct{}
+
 	logger *slog.Logger
 }
 
@@ -67,8 +77,11 @@ const (
 	playerRight2ID   = 15
 	topSpongeID      = 16
 	downSpongeID     = 17
+	stationID        = 18
 
 	visibilityLimit = 11
+
+	stationResearchDuration = time.Second * 10
 )
 
 func NewGame() (*Game, error) {
@@ -109,6 +122,7 @@ func NewGame() (*Game, error) {
 		ebiten.KeyEscape,
 		ebiten.KeyEnter,
 		ebiten.KeyJ,
+		ebiten.KeyB,
 	}
 
 	bodyFace, err := simpleui.LoadFont(fonts.MPlus1pRegular_ttf, 28)
@@ -142,6 +156,8 @@ func NewGame() (*Game, error) {
 		stager:          stager.New(),
 		dialog:          dialog,
 
+		researchedSoils: make(map[int]struct{}),
+
 		logger: logger,
 	}
 	objIDs := []int{
@@ -162,6 +178,7 @@ func NewGame() (*Game, error) {
 		playerRight2ID,
 		topSpongeID,
 		downSpongeID,
+		stationID,
 	}
 	for _, id := range objIDs {
 		game.imagesByObjID[id] = getSubImage(id, tilesetImage, tileSize)
@@ -178,8 +195,8 @@ func NewGame() (*Game, error) {
 
 	game.animationByObjID[plant1ID] = plantAnimation
 
-	//game.stager.SetStage(stager.SceneStage)
-	game.stager.SetStage(stager.GameStage)
+	game.stager.SetStage(stager.SceneStage)
+	//game.stager.SetStage(stager.GameStage)
 
 	playerForwardAnimation := animation.NewAnimation([]*ebiten.Image{game.imagesByObjID[playerForward1ID], game.imagesByObjID[playerForward2ID]})
 	playerForwardAnimation.SetScale(game.mapScale, game.mapScale)
@@ -204,8 +221,9 @@ func NewGame() (*Game, error) {
 	eventManager := eventmanager.NewEventManager(player, gameMap)
 	eventManager.SetEvents([]eventmanager.Event{
 		eventmanager.NewMeetEvent([]int{plant1ID}, func() {
-			text := "FLORA-2284-Y (\"Солнечный шёпот\")  \n\nЖелтый, как сгусток инопланетного света, этот странный организм колышется в разреженном ветре Kepler-442b, будто пойманный в ловушку собственного сияния. Его лепестки, тонкие, как лезвия, мерцают неестественным золотом, словно впитали свет далекой звезды и теперь медленно излучают его обратно в сумрачный мир. При малейшем прикосновении растение звенит, будто стеклянная арфа, а его поверхность, покрытая серебристыми ворсинками, дрожит, словно живая ртуть. Оно не похоже на земные цветы — в нем нет ни мягкости, ни нежности, только холодная, почти механическая красота, словно сама планета вырастила его из металла и солнечного ветра. И когда ночь опускается на равнины, ксантоид начинает светиться изнутри, как забытый сигнальный маяк, будто пытается что-то сказать… или предупредить."
+			text := "FLORA-2284-Y (\"Солнечный шёпот\")  \n\nЖёлтый организм простой формы: два толстых корня, вросших в грунт Kepler-442b, соединены единственным гибким стеблем. Стебель не замирает ни на секунду — он непрерывно покачивается из стороны в сторону, будто его треплет ветер, даже когда воздух вокруг неподвижен.\n\nСканирование не выявило ни токсинов, ни защитных механизмов: колебание стебля — это, судя по всему, просто способ организма улавливать свет или влагу, а не реакция на угрозу. Контакт не вызывает никакого отклика, кроме лёгкой вибрации. Организм статичен, неподвижен корнями и не проявляет агрессии. Классифицировано как безопасное."
 			turnOnDialog := func() {
+				game.journal.TurnOff()
 				game.stager.SetStage(stager.DialogStage)
 				game.dialog.TurnOn(text)
 			}
@@ -213,12 +231,14 @@ func NewGame() (*Game, error) {
 			game.journalRecords = append(game.journalRecords, journal.RecordJournal{
 				Image:       game.imagesByObjID[plant1ID],
 				Description: text,
+				Category:    "Флора",
 				Action:      turnOnDialog,
 			})
 		}),
 		eventmanager.NewMeetEvent([]int{topSpongeID, downSpongeID}, func() {
-			text := "FLORA-4712-P (\"Розовый Пульсар\")\n\nМягкий, почти неестественно пухлый, этот организм напоминает гигантскую каплю жевательной резинки, случайно упавшую на каменистую поверхность Kepler-442b. Его розовая, полупрозрачная поверхность переливается перламутровыми бликами, словно покрыта тонкой плёнкой слизи, но при этом выглядит сухой на ощупь. Цветок пульсирует едва заметно, как будто дышит, расширяясь и сжимаясь в медленном, гипнотическом ритме.\n\nПри приближении его бархатистая текстура внезапно меняется — поверхность вздымается крошечными пузырьками, словно кипящая жидкость, а затем снова опадает в гладкую массу. Если коснуться, он нежно дрожит, издавая слабый, похожий на бульканье звук, а затем медленно начинает менять оттенок — от нежно-розового до глубокого фуксии, будто реагируя на контакт."
+			text := "FLORA-4712-P (\"Розовый Пульсар\")\n\nМягкий, пористый организм, по виду и текстуре напоминающий воздушную губку — вся его розовая поверхность испещрена мелкими порами, через которые, судя по показаниям сенсоров, идёт медленный газообмен с атмосферой Kepler-442b. Тело полностью неподвижно: ни движения, ни пульсации не зафиксировано за всё время наблюдения.\n\nПри контакте отклика не последовало — ни изменения формы, ни звука. Анализ подтверждает: ни ядовитых спор, ни раздражающих веществ не обнаружено. Организм статичен и не представляет угрозы — классифицировано как безопасное."
 			turnOnDialog := func() {
+				game.journal.TurnOff()
 				game.stager.SetStage(stager.DialogStage)
 				game.dialog.TurnOn(text)
 			}
@@ -226,6 +246,7 @@ func NewGame() (*Game, error) {
 			game.journalRecords = append(game.journalRecords, journal.RecordJournal{
 				Image:       game.imagesByObjID[topSpongeID],
 				Description: text,
+				Category:    "Флора",
 				Action:      turnOnDialog,
 			})
 		}),
@@ -286,6 +307,13 @@ func (game *Game) Update() error {
 	case stager.GameStage:
 		game.player.Update()
 		game.eventManager.Update()
+
+		if game.stationPlaced && !game.stationReady && time.Since(game.stationPlacedAt) >= stationResearchDuration {
+			game.stationReady = true
+			text := "СТАНЦИЯ RX-7: обследование почвы и воздуха завершено. Вернитесь к месту установки и заберите собранные данные."
+			game.stager.SetStage(stager.DialogStage)
+			game.dialog.TurnOn(text)
+		}
 
 		for _, animation := range game.animationByObjID {
 			animation.Update(0.05)
@@ -426,7 +454,7 @@ func (game *Game) addEvents() {
 		case stager.SceneStage:
 			game.stager.SetStage(stager.GameStage)
 		case stager.DialogStage:
-			game.stager.RecoveryLastStage()
+			game.stager.SetStage(stager.GameStage)
 			game.dialog.TurnOff()
 		case stager.JournalStage:
 			game.journal.ActivateSelection()
@@ -455,12 +483,98 @@ func (game *Game) addEvents() {
 			game.stager.SetStage(stager.GameStage)
 		}
 	})
+	game.keyEventManager.AddPressedEvent(ebiten.KeyB, func() {
+		switch game.stager.Stage() {
+		case stager.GameStage:
+			if game.stationPlaced {
+				game.collectStation()
+			} else {
+				game.placeStation()
+			}
+		}
+	})
 	game.keyEventManager.AddPressedEvent(ebiten.KeyEscape, func() {
 		os.Exit(0)
 	})
 	game.keyEventManager.SetDefaultEvent(func() {
 		game.player.Move(ebiten.Key0) // not move player
 	})
+}
+
+func (game *Game) placeStation() {
+	tileX := int(game.player.X) / game.tileSize
+	tileY := int(game.player.Y) / game.tileSize
+	soilID := game.gameMap.Layers[0][tileX][tileY]
+
+	if _, ok := game.researchedSoils[soilID]; ok {
+		game.showStationMessage("СТАНЦИЯ RX-7: проба грунта на этом участке совпадает с уже исследованным образцом. Здесь нечего исследовать.")
+		return
+	}
+
+	game.gameMap.Layers[1][tileX][tileY] = stationID
+	game.stationPlaced = true
+	game.stationReady = false
+	game.stationTileX = tileX
+	game.stationTileY = tileY
+	game.stationSoilID = soilID
+	game.stationPlacedAt = time.Now()
+
+	game.showStationMessage("СТАНЦИЯ RX-7: развёрнута. Начато обследование почвы и состава воздуха — потребуется некоторое время. Вернитесь позже, чтобы забрать собранные данные.")
+}
+
+func (game *Game) collectStation() {
+	dx := int(game.player.X)/game.tileSize - game.stationTileX
+	dy := int(game.player.Y)/game.tileSize - game.stationTileY
+	if abs(dx) > 1 || abs(dy) > 1 {
+		game.showStationMessage("СТАНЦИЯ RX-7: станция находится в другом месте. Сначала нужно вернуться к ней и забрать данные.")
+		return
+	}
+
+	if !game.stationReady {
+		game.showStationMessage("СТАНЦИЯ RX-7: обследование ещё продолжается. Вернитесь позже.")
+		return
+	}
+
+	game.researchedSoils[game.stationSoilID] = struct{}{}
+	game.gameMap.Layers[1][game.stationTileX][game.stationTileY] = 0
+	game.stationPlaced = false
+	game.stationReady = false
+
+	text := stationReportText(game.stationSoilID)
+	turnOnDialog := func() {
+		game.journal.TurnOff()
+		game.stager.SetStage(stager.DialogStage)
+		game.dialog.TurnOn(text)
+	}
+	turnOnDialog()
+	game.journalRecords = append(game.journalRecords, journal.RecordJournal{
+		Image:       game.imagesByObjID[stationID],
+		Description: text,
+		Category:    "Исследования станции",
+		Action:      turnOnDialog,
+	})
+}
+
+func stationReportText(soilID int) string {
+	switch soilID {
+	case groundID:
+		return "ГРУНТ #1 — ПЕСЧАНАЯ РАВНИНА\n\nПервый образец, взятый роботом на Kepler-442b: мелкозернистый песок охристого оттенка, состоящий преимущественно из силикатных частиц с высокой отражающей способностью — вероятно, именно поэтому равнина вокруг места посадки светится под местным солнцем ярче, чем показывали орбитальные снимки. Органических соединений не обнаружено, зато зафиксирован лёгкий электростатический заряд: частицы трутся друг о друга на ветру и слабо потрескивают под манипулятором станции.\n\nДатчики зафиксировали температуру поверхности +" +
+			"76 °C в момент замера и падение до +46 °C уже через несколько часов после захода светила — суточный перепад около тридцати градусов, характерный для сухого грунта без растительного покрова, который не удерживает тепло. Радиационный фон в норме, токсичных примесей нет. Грунт стабилен и не представляет угрозы, но беден питательными веществами — для земледелия потребуется обработка. Первый кирпичик в общей картине пригодности планеты для жизни."
+	default:
+		return fmt.Sprintf("ДАННЫЕ СТАНЦИИ RX-7 (образец грунта #%d)\n\nАнализ образца грунта и локальной атмосферы завершён. Опасных веществ, токсичных примесей и активных биологических агентов не обнаружено. Результат внесён в бортовой архив.", soilID)
+	}
+}
+
+func (game *Game) showStationMessage(text string) {
+	game.stager.SetStage(stager.DialogStage)
+	game.dialog.TurnOn(text)
+}
+
+func abs(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
 }
 
 func (game *Game) Close() {}
