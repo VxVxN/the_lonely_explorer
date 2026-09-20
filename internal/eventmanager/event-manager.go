@@ -41,7 +41,8 @@ type Event interface {
 }
 
 type MeetEvent struct {
-	whom []int
+	whom   []int
+	filter func(x, y int) bool
 	baseEvent
 }
 
@@ -54,15 +55,30 @@ func NewMeetEvent(whom []int, action func()) *MeetEvent {
 	}
 }
 
+// NewMeetEventWhere works like NewMeetEvent, but only the tiles accepted by filter (tile coordinates) count.
+func NewMeetEventWhere(whom []int, filter func(x, y int) bool, action func()) *MeetEvent {
+	event := NewMeetEvent(whom, action)
+	event.filter = filter
+	return event
+}
+
 func (e *MeetEvent) Check(player *player.Player, gameMap *_map.Map) bool {
 	tileSize := gameMap.Data.TileWidth
+	probes := [][2]int{
+		{int(player.X) / tileSize, int(player.Y) / tileSize},
+		{int(player.X+1) / tileSize, int(player.Y) / tileSize},
+		{int(player.X) / tileSize, int(player.Y+1) / tileSize},
+		{int(player.X-1) / tileSize, int(player.Y) / tileSize},
+		{int(player.X) / tileSize, int(player.Y-1) / tileSize},
+	}
 	for _, whom := range e.whom {
-		if gameMap.Layers[1][int(player.X)/tileSize][int(player.Y)/tileSize] == whom ||
-			gameMap.Layers[1][int(player.X+1)/tileSize][int(player.Y)/tileSize] == whom ||
-			gameMap.Layers[1][int(player.X)/tileSize][int(player.Y+1)/tileSize] == whom ||
-			gameMap.Layers[1][int(player.X-1)/tileSize][int(player.Y)/tileSize] == whom ||
-			gameMap.Layers[1][int(player.X)/tileSize][int(player.Y-1)/tileSize] == whom {
-			return true
+		for _, probe := range probes {
+			if gameMap.Layers[1][probe[0]][probe[1]] != whom {
+				continue
+			}
+			if e.filter == nil || e.filter(probe[0], probe[1]) {
+				return true
+			}
 		}
 	}
 	return false

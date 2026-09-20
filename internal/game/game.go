@@ -5,8 +5,11 @@ import (
 	"image"
 	"image/color"
 	"log/slog"
+	"math"
+	"math/rand"
 	"os"
 	"path"
+	"strconv"
 	"time"
 
 	"github.com/VxVxN/gamedevlib/animation"
@@ -15,6 +18,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/examples/resources/fonts"
+	"github.com/hajimehoshi/ebiten/v2/vector"
 
 	"github.com/VxVxN/the_lonely_explorer/internal/eventmanager"
 	"github.com/VxVxN/the_lonely_explorer/internal/journal"
@@ -54,6 +58,16 @@ type Game struct {
 	stationPlacedAt time.Time
 	researchedSoils map[int]struct{}
 
+	// spongeTicks хранит счётчик мигания для губок рядом с игроком по координатам тайла.
+	pendingRespawn bool                // робот погиб, ждём закрытия сообщения о гибели
+	acidReported   bool                // описание опасного растения уже показано и записано в журнал
+	acidSponges    map[[2]int]struct{} // тайлы topSpongeID растений, которые распыляют кислоту
+	deathTicks     int                 // кадров с начала фазы гибели (0, если робот в безопасности)
+	robotNumber    int                 // номер текущего робота: RX-<robotNumber>, растёт после каждой смерти
+	spongeTicks    map[[2]int]int
+	// spongeAnimTicks хранит счётчик анимации topSpongeID для тайлов вплотную к игроку.
+	spongeAnimTicks map[[2]int]int
+
 	logger *slog.Logger
 }
 
@@ -78,8 +92,24 @@ const (
 	topSpongeID      = 16
 	downSpongeID     = 17
 	stationID        = 18
+	topSponge2ID     = 19
+	downSponge2ID    = 20
+	topSpongeAnim1ID = 21
+	topSpongeAnim2ID = 22
+	topSpongeAnim3ID = 23
+	topSpongeAnim4ID = 24
+	spongeExtraID    = 25
+	deadRobotID      = 26
 
 	visibilityLimit = 11
+
+	spongeActivationTiles = 3
+	spongeCloseTiles      = 1.5 // расстояние, на котором срабатывает анимация topSpongeID
+	spongeIntroFrames     = 48  // кадров на один кадр первого проигрывания анимации topSpongeID
+	spongeDeathFrames     = 90  // кадров (1,5 сек) после начала цикла 4–5, через которые робот погибает
+	spongeLoopFrames      = 24  // кадров на один кадр зацикленной части (4-й и 5-й)
+	acidPlantShare        = 0.2 // доля растений, распыляющих кислоту
+	spongeBlinkFrames     = 40  // кадров на одно состояние при мигании
 
 	stationResearchDuration = time.Second * 10
 )
@@ -148,6 +178,9 @@ func NewGame() (*Game, error) {
 		scene1UI: newScene1UI(theme, float64(w), float64(h)),
 
 		imagesByObjID:    make(map[int]*ebiten.Image),
+		robotNumber:      1,
+		spongeTicks:      make(map[[2]int]int),
+		spongeAnimTicks:  make(map[[2]int]int),
 		animationByObjID: make(map[int]*animation.Animation),
 
 		gameMap:         gameMap,
@@ -179,6 +212,14 @@ func NewGame() (*Game, error) {
 		topSpongeID,
 		downSpongeID,
 		stationID,
+		topSponge2ID,
+		downSponge2ID,
+		topSpongeAnim1ID,
+		topSpongeAnim2ID,
+		topSpongeAnim3ID,
+		topSpongeAnim4ID,
+		spongeExtraID,
+		deadRobotID,
 	}
 	for _, id := range objIDs {
 		game.imagesByObjID[id] = getSubImage(id, tilesetImage, tileSize)
@@ -234,7 +275,7 @@ func NewGame() (*Game, error) {
 				Action:      turnOnDialog,
 			})
 		}),
-		eventmanager.NewMeetEvent([]int{topSpongeID, downSpongeID}, func() {
+		eventmanager.NewMeetEventWhere([]int{topSpongeID, downSpongeID}, game.isSafeSponge, func() {
 			text := "FLORA-4712-P (\"Розовый Пульсар\")\n\nМягкий, пористый организм, по виду и текстуре напоминающий воздушную губку — вся его розовая поверхность испещрена мелкими порами, через которые, судя по показаниям сенсоров, идёт медленный газообмен с атмосферой Kepler-442b. Тело полностью неподвижно: ни движения, ни пульсации не зафиксировано за всё время наблюдения.\n\nПри контакте отклика не последовало — ни изменения формы, ни звука. Анализ подтверждает: ни ядовитых спор, ни раздражающих веществ не обнаружено. Организм статичен и не представляет угрозы — классифицировано как безопасное."
 			turnOnDialog := func() {
 				game.journal.TurnOff()
@@ -288,6 +329,7 @@ func NewGame() (*Game, error) {
 	}
 
 	game.addEvents()
+	game.pickAcidSponges()
 
 	return game, nil
 }
@@ -313,6 +355,8 @@ func (game *Game) Update() error {
 			game.stager.SetStage(stager.DialogStage)
 			game.dialog.TurnOn(text)
 		}
+
+		game.updateSponges()
 
 		for _, animation := range game.animationByObjID {
 			animation.Update(0.05)
@@ -366,6 +410,16 @@ func (game *Game) Draw(screen *ebiten.Image) {
 					continue
 				}
 
+				if ticks, ok := game.spongeTicks[[2]int{x, y}]; ok && (ticks/spongeBlinkFrames)%2 == 1 {
+					if img2, ok := game.imagesByObjID[spongeSecondState(tile)]; ok {
+						img = img2
+					}
+				}
+
+				if ticks, ok := game.spongeAnimTicks[[2]int{x, y}]; ok && tile == topSpongeID {
+					img = game.imagesByObjID[topSpongeAnimID(ticks)]
+				}
+
 				op := &ebiten.DrawImageOptions{}
 				op.GeoM.Translate(xPixel, yPixel)
 				op.GeoM.Scale(game.mapScale, game.mapScale)
@@ -373,10 +427,27 @@ func (game *Game) Draw(screen *ebiten.Image) {
 			}
 		}
 	}
-	game.player.Draw(screen, centerWindowX, centerWindowY)
+	if !game.pendingRespawn {
+		game.player.Draw(screen, centerWindowX, centerWindowY)
+	}
 	ebitenutil.DebugPrint(screen, fmt.Sprintf("Player %.0fx%.0f", game.player.X, game.player.Y))
+	game.drawDeathPulse(screen)
 	game.dialog.Draw(screen)
 	game.journal.Draw(screen)
+}
+
+// drawDeathPulse заливает экран пульсирующим красным: чем ближе гибель, тем сильнее и чаще пульс.
+func (game *Game) drawDeathPulse(screen *ebiten.Image) {
+	if game.deathTicks <= 0 {
+		return
+	}
+	progress := float64(game.deathTicks) / spongeDeathFrames
+	phase := float64(game.deathTicks) * (0.08 + 0.15*progress)
+	pulse := (1 + math.Sin(phase)) / 2
+	alpha := (0.1 + 0.4*pulse) * (0.4 + 0.6*progress)
+	a := uint8(alpha * 255) // цвет с предумноженной альфой
+	w, h := screen.Bounds().Dx(), screen.Bounds().Dy()
+	vector.DrawFilledRect(screen, 0, 0, float32(w), float32(h), color.RGBA{R: a, A: a}, false)
 }
 
 func (game *Game) Layout(screenWidthPx, screenHeightPx int) (int, int) {
@@ -453,8 +524,12 @@ func (game *Game) addEvents() {
 		case stager.SceneStage:
 			game.stager.SetStage(stager.GameStage)
 		case stager.DialogStage:
-			game.stager.SetStage(stager.GameStage)
 			game.dialog.TurnOff()
+			if game.pendingRespawn {
+				game.respawn()
+				return
+			}
+			game.stager.SetStage(stager.GameStage)
 		case stager.JournalStage:
 			game.journal.ActivateSelection()
 		}
@@ -567,6 +642,226 @@ func stationReportText(soilID int) string {
 func (game *Game) showStationMessage(text string) {
 	game.stager.SetStage(stager.DialogStage)
 	game.dialog.TurnOn(text)
+}
+
+var topSpongeAnimIDs = []int{topSpongeAnim1ID, topSpongeAnim2ID, topSpongeAnim3ID, topSpongeAnim4ID}
+
+// topSpongeAnimID: первые кадры проигрываются один раз (медленно), затем 4-й и 5-й чередуются по кругу.
+func topSpongeAnimID(ticks int) int {
+	last := len(topSpongeAnimIDs) - 1
+	if ticks < last*spongeIntroFrames {
+		return topSpongeAnimIDs[ticks/spongeIntroFrames]
+	}
+	if ((ticks-last*spongeIntroFrames)/spongeLoopFrames)%2 == 0 {
+		return topSpongeAnimIDs[last]
+	}
+	return spongeExtraID
+}
+
+func spongeSecondState(tile int) int {
+	switch tile {
+	case topSpongeID:
+		return topSponge2ID
+	case downSpongeID:
+		return downSponge2ID
+	}
+	return 0
+}
+
+// killPlayer оставляет мёртвого робота там, где он погиб, и показывает сообщение о гибели; после него срабатывает respawn.
+func (game *Game) killPlayer() {
+	tileX := int(math.Round(game.player.X / float64(game.tileSize)))
+	tileY := int(math.Round(game.player.Y / float64(game.tileSize)))
+	for _, layer := range game.gameMap.Layers[1:] {
+		if tileX < 0 || tileX >= len(layer) || tileY < 0 || tileY >= len(layer[tileX]) {
+			break
+		}
+		if layer[tileX][tileY] == 0 {
+			layer[tileX][tileY] = deadRobotID
+			ts := float64(game.tileSize)
+			game.collisionObjs = append(game.collisionObjs, rectangle.New(float64(tileX)*ts, float64(tileY)*ts, ts, ts))
+			break
+		}
+	}
+
+	clear(game.spongeTicks)
+	clear(game.spongeAnimTicks)
+	game.deathTicks = 0
+
+	game.pendingRespawn = true
+	game.stager.SetStage(stager.DialogStage)
+	game.dialog.TurnOn("Растение оказалось распыляющим кислоту. Робот RX-" + strconv.Itoa(game.robotNumber) + " был разрушен.")
+}
+
+// respawn возвращает нового робота на старт и показывает начальную сцену.
+func (game *Game) respawn() {
+	game.pendingRespawn = false
+	game.player.SetPosition(game.startPlayerX, game.startPlayerY)
+	game.player.Move(ebiten.Key0)
+	game.robotNumber++
+	game.scene1UI.SetRobotNumber(game.robotNumber)
+	game.stager.SetStage(stager.SceneStage)
+}
+
+// pickAcidSponges выбирает случайные acidPlantShare растений (связных групп клеток губки), которые распыляют кислоту.
+// Хотя бы одно растение выбирается всегда, если они есть на карте.
+func (game *Game) pickAcidSponges() {
+	game.acidSponges = make(map[[2]int]struct{})
+
+	seen := make(map[[2]int]struct{})
+	var plants [][][2]int
+	for x := range game.gameMap.Layers[0] {
+		for y := range game.gameMap.Layers[0][x] {
+			start := [2]int{x, y}
+			if _, ok := seen[start]; ok || !game.isSponge(x, y) {
+				continue
+			}
+			plant := [][2]int{start}
+			seen[start] = struct{}{}
+			for i := 0; i < len(plant); i++ {
+				for dx := -1; dx <= 1; dx++ {
+					for dy := -1; dy <= 1; dy++ {
+						next := [2]int{plant[i][0] + dx, plant[i][1] + dy}
+						if _, ok := seen[next]; ok || !game.isSponge(next[0], next[1]) {
+							continue
+						}
+						seen[next] = struct{}{}
+						plant = append(plant, next)
+					}
+				}
+			}
+			plants = append(plants, plant)
+		}
+	}
+
+	rand.Shuffle(len(plants), func(i, j int) { plants[i], plants[j] = plants[j], plants[i] })
+	count := int(math.Round(float64(len(plants)) * acidPlantShare))
+	if len(plants) > 0 {
+		count = max(count, 1)
+	}
+	for _, plant := range plants[:count] {
+		for _, tile := range plant {
+			game.acidSponges[tile] = struct{}{}
+		}
+	}
+	game.logger.Info("Acid plants picked", "plants", len(plants), "acid", count)
+}
+
+func (game *Game) isSafeSponge(x, y int) bool {
+	_, acid := game.acidSponges[[2]int{x, y}]
+	return !acid
+}
+
+// reportAcidPlant показывает описание опасного растения и записывает его в журнал, когда оно начинает брызгать кислотой.
+func (game *Game) reportAcidPlant() {
+	game.acidReported = true
+	text := "FLORA-4712-A (\"Розовый Пульсар\", кислотная форма)\n\nВНИМАНИЕ: ОПАСНО. Внешне организм неотличим от безопасных особей своего вида, однако при приближении на расстояние менее полутора метров он раскрывает поры и выбрасывает плотную струю концентрированной кислоты. Сенсоры зафиксировали pH ниже 1 и стремительное разрушение внешних покровов робота.\n\nОрганизм активен, реагирует на присутствие в радиусе нескольких метров — его выдаёт короткое мерцание перед выбросом. Классифицировано как смертельно опасное. Рекомендация: не приближаться вплотную к растениям этого вида, обходить их на безопасном расстоянии."
+	turnOnDialog := func() {
+		game.journal.TurnOff()
+		game.stager.SetStage(stager.DialogStage)
+		game.dialog.TurnOn(text)
+	}
+	turnOnDialog()
+	game.journalRecords = append(game.journalRecords, journal.RecordJournal{
+		Image:       game.imagesByObjID[topSpongeAnim4ID],
+		Description: text,
+		Category:    "Флора",
+		Action:      turnOnDialog,
+	})
+}
+
+func (game *Game) isSponge(x, y int) bool {
+	for _, layer := range game.gameMap.Layers {
+		if x >= 0 && x < len(layer) && y >= 0 && y < len(layer[x]) && spongeSecondState(layer[x][y]) != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// updateSponges заставляет губки мигать между двумя состояниями, пока игрок ближе трёх клеток.
+func (game *Game) updateSponges() {
+	ts := float64(game.tileSize)
+	playerCX, playerCY := game.player.X+ts/2, game.player.Y+ts/2
+	limit := spongeActivationTiles * ts
+	px, py := int(game.player.X)/game.tileSize, int(game.player.Y)/game.tileSize
+	r := spongeActivationTiles + 1
+
+	near := make(map[[2]int]struct{})
+	close := make(map[[2]int]struct{})
+	for _, layer := range game.gameMap.Layers {
+		for x := max(px-r, 0); x <= px+r && x < len(layer); x++ {
+			for y := max(py-r, 0); y <= py+r && y < len(layer[x]); y++ {
+				if spongeSecondState(layer[x][y]) == 0 {
+					continue
+				}
+				_, acid := game.acidSponges[[2]int{x, y}]
+				if !acid {
+					continue
+				}
+				dx := float64(x)*ts + ts/2 - playerCX
+				dy := float64(y)*ts + ts/2 - playerCY
+				if dx*dx+dy*dy < limit*limit {
+					near[[2]int{x, y}] = struct{}{}
+				}
+				if layer[x][y] == topSpongeID && dx*dx+dy*dy < spongeCloseTiles*spongeCloseTiles*ts*ts {
+					close[[2]int{x, y}] = struct{}{}
+				}
+			}
+		}
+	}
+
+	// растение мигает целиком: заражаем соседние клетки с губками (включая диагонали)
+	queue := make([][2]int, 0, len(near))
+	for key := range near {
+		queue = append(queue, key)
+	}
+	for len(queue) > 0 {
+		cur := queue[len(queue)-1]
+		queue = queue[:len(queue)-1]
+		for dx := -1; dx <= 1; dx++ {
+			for dy := -1; dy <= 1; dy++ {
+				next := [2]int{cur[0] + dx, cur[1] + dy}
+				if _, ok := near[next]; ok || !game.isSponge(next[0], next[1]) {
+					continue
+				}
+				near[next] = struct{}{}
+				queue = append(queue, next)
+			}
+		}
+	}
+
+	killed := false
+	game.deathTicks = 0
+	for key := range close {
+		game.spongeAnimTicks[key]++
+		dying := game.spongeAnimTicks[key] - (len(topSpongeAnimIDs)-1)*spongeIntroFrames
+		game.deathTicks = max(game.deathTicks, dying)
+		if dying >= 0 && !game.acidReported {
+			game.reportAcidPlant()
+		}
+		if dying >= spongeDeathFrames {
+			killed = true
+		}
+	}
+	if killed {
+		game.killPlayer()
+		return
+	}
+	for key := range game.spongeAnimTicks {
+		if _, ok := close[key]; !ok {
+			delete(game.spongeAnimTicks, key)
+		}
+	}
+
+	for key := range near {
+		game.spongeTicks[key]++
+	}
+	for key := range game.spongeTicks {
+		if _, ok := near[key]; !ok {
+			delete(game.spongeTicks, key)
+		}
+	}
 }
 
 func abs(n int) int {
