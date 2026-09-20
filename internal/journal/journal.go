@@ -39,21 +39,39 @@ type Journal struct {
 }
 
 const (
-	itemHeight = 50.0
-	imageWidth = 40.0
+	itemHeight       = 50.0
+	imageWidth       = 40.0
+	descriptionWidth = 380.0
 )
 
 // NewJournal builds a Journal styled from theme, laid out against a
 // screenWidth x screenHeight screen.
 func NewJournal(theme *simpleui.Theme, screenWidth, screenHeight float64) *Journal {
-	empty := simpleui.NewText("Журнал пуст", theme.Face, theme.TextColor)
+	empty := simpleui.NewText("Журнал пуст", theme.Face, theme.MutedColor)
+	empty.Align = simpleui.AlignCenter
+
+	title := simpleui.NewText("Бортовой журнал", theme.TitleFace, theme.Accent)
+	title.Align = simpleui.AlignCenter
+
+	titleRule := simpleui.NewContainer(simpleui.Vertical)
+	titleRule.Background = theme.Border
+	titleRule.Padding = simpleui.Insets{Top: 1}
+
+	header := simpleui.NewContainer(simpleui.Vertical)
+	header.Spacing = 10
+	header.Padding = simpleui.Insets{Bottom: 15}
+	header.Add(title)
+	header.Add(titleRule)
 
 	list := simpleui.NewContainer(simpleui.Vertical)
 	list.Spacing = 10
 
 	panel := simpleui.NewContainer(simpleui.Vertical)
-	panel.Background = color.RGBA{0, 0, 0, 200}
-	panel.Padding = simpleui.NewInsets(15)
+	panel.Background = simpleui.WithAlpha(theme.Panel, 235)
+	panel.Border = theme.Border
+	panel.BorderWidth = 1
+	panel.Padding = simpleui.NewInsets(20)
+	panel.Add(header)
 	panel.Add(list)
 
 	root := simpleui.NewContainer(simpleui.Vertical)
@@ -93,19 +111,35 @@ func (j *Journal) SetKnowRecords(records []RecordJournal) {
 		grouped[record.Category] = append(grouped[record.Category], record)
 	}
 
-	for _, category := range categories {
+	for categoryIndex, category := range categories {
 		if category != "" {
-			j.list.Add(simpleui.NewText(category, j.theme.Face, j.theme.Accent))
+			header := simpleui.NewContainer(simpleui.Vertical)
+			header.Spacing = 6
+			if categoryIndex > 0 {
+				header.Padding = simpleui.Insets{Top: 10}
+			}
+			header.Add(simpleui.NewText(category, j.theme.Face, j.theme.Accent))
+
+			rule := simpleui.NewContainer(simpleui.Vertical)
+			rule.Background = simpleui.WithAlpha(j.theme.Border, 150)
+			rule.Padding = simpleui.Insets{Top: 1}
+			header.Add(rule)
+
+			j.list.Add(header)
 		}
 		for _, record := range grouped[category] {
 			record := record
 			description := strings.Split(record.Description, "\n")[0]
 
+			descriptionText := simpleui.NewText(description, j.theme.Face, j.theme.TextColor)
+			descriptionText.MaxWidth = descriptionWidth
+
 			row := simpleui.NewContainer(simpleui.Horizontal)
 			row.Spacing = 10
 			row.CrossAlign = simpleui.AlignCenter
+			row.Padding = simpleui.Insets{Top: 4, Bottom: 4, Left: 6, Right: 6}
 			row.Add(simpleui.NewIcon(record.Image, imageWidth, itemHeight))
-			row.Add(simpleui.NewText(description, j.theme.Face, j.theme.TextColor))
+			row.Add(descriptionText)
 
 			clickable := simpleui.NewClickable(row, j.theme, record.Action)
 			j.rows = append(j.rows, clickable)
